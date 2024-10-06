@@ -3,6 +3,10 @@
 
 #include <cmath>
 #include <limits>
+#include <vector>
+#include <map>
+#include <iomanip>
+
 
 namespace trueskill {
 namespace math {
@@ -145,6 +149,143 @@ private:
     double _sigma = 8.333;   // Standard deviation
     double _pi;
     double _tau;
+};
+
+class Matrix {
+public:
+    std::vector<std::vector<double>> data;
+    int height, width;
+
+    Matrix(const std::vector<std::vector<double>>& src) : height(src.size()), width(src[0].size()), data(src) {
+        for (const auto& row : src) {
+            if (row.size() != width) {
+                throw std::invalid_argument("src must be a rectangular array of numbers");
+            }
+        }
+    }
+
+    Matrix(const std::map<std::pair<int, int>, double>& src, int height, int width) : height(height), width(width) {
+        data.resize(height, std::vector<double>(width, 0));
+        for (const auto& item : src) {
+            int r = item.first.first, c = item.first.second;
+            data[r][c] = item.second;
+        }
+    }
+
+    Matrix transpose() const {
+        std::vector<std::vector<double>> transposed(width, std::vector<double>(height));
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                transposed[c][r] = data[r][c];
+            }
+        }
+        return Matrix(transposed);
+    }
+
+    Matrix minor(int row_n, int col_n) const {
+        if (row_n < 0 || row_n >= height || col_n < 0 || col_n >= width) {
+            throw std::invalid_argument("Invalid row or column number");
+        }
+        std::vector<std::vector<double>> minorMatrix;
+        for (int r = 0; r < height; r++) {
+            if (r == row_n) continue;
+            std::vector<double> row;
+            for (int c = 0; c < width; c++) {
+                if (c == col_n) continue;
+                row.push_back(data[r][c]);
+            }
+            minorMatrix.push_back(row);
+        }
+        return Matrix(minorMatrix);
+    }
+    
+    Matrix adjugate() const {
+        if (height != width) {
+            throw std::invalid_argument("Only square matrix can be adjugated");
+        }
+
+        std::vector<std::vector<double>> cofactors(height, std::vector<double>(width));
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                double sign = ((r + c) % 2 == 0) ? 1.0 : -1.0;
+                cofactors[r][c] = sign * minor(r, c).determinant();
+            }
+        }
+        return Matrix(cofactors).transpose();
+    }
+
+    Matrix inverse() const {
+        double det = determinant();
+        if (det == 0) {
+            throw std::invalid_argument("Matrix is singular, can't find its inverse");
+        }
+        return adjugate() * (1.0 / det);
+    }
+    
+    Matrix operator+(const Matrix& other) const {
+        if (height != other.height || width != other.width) {
+            throw std::invalid_argument("Matrices must be the same size for addition");
+        }
+        std::vector<std::vector<double>> result(height, std::vector<double>(width));
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                result[r][c] = data[r][c] + other.data[r][c];
+            }
+        }
+        return Matrix(result);
+    }
+
+    Matrix operator*(const Matrix& other) const {
+        if (width != other.height) {
+            throw std::invalid_argument("Bad size for multiplication");
+        }
+        std::vector<std::vector<double>> result(height, std::vector<double>(other.width));
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < other.width; c++) {
+                for (int k = 0; k < width; k++) {
+                    result[r][c] += data[r][k] * other.data[k][c];
+                }
+            }
+        }
+        return Matrix(result);
+    }
+
+    Matrix operator*(double scalar) const {
+        std::vector<std::vector<double>> result(height, std::vector<double>(width));
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                result[r][c] = data[r][c] * scalar;
+            }
+        }
+        return Matrix(result);
+    }
+
+    double determinant() const {
+        if (height != width) {
+            throw std::invalid_argument("Only square matrix can calculate a determinant");
+        }
+        if (height == 1) return data[0][0];
+
+        if (height == 2) {
+            return data[0][0] * data[1][1] - data[0][1] * data[1][0];
+        }
+
+        double det = 0;
+        for (int c = 0; c < width; c++) {
+            det += ((c % 2 == 0) ? 1 : -1) * data[0][c] * minor(0, c).determinant();
+        }
+        return det;
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const Matrix& matrix) {
+        for (const auto& row : matrix.data) {
+            for (double val : row) {
+                os << std::setw(10) << val << " ";
+            }
+            os << std::endl;
+        }
+        return os;
+    }
 };
 
 } // namespace math
