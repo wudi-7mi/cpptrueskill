@@ -5,54 +5,82 @@
 #include <cmath>
 #include <random>
 #include <algorithm>
+#include <memory>
+#include "factors.hpp"
+#include "mathematics.hpp"
 
-class Player {
+namespace trueskill {
+
+class Rating : public trueskill::math::Gaussian {
 public:
-    Player(double mu = 25.0, double sigma = 8.33) : mu_(mu), sigma_(sigma) {}
+    Rating(double mu, double sigma) : trueskill::math::Gaussian(mu, sigma) {}
     
-    double mu() const { return mu_; }
-    double sigma() const { return sigma_; }
-    
-    void update(double new_mu, double new_sigma) {
-        mu_ = new_mu;
-        sigma_ = new_sigma;
+    operator int() const {
+        return static_cast<int>(mu());
     }
 
-private:
-    double mu_;
-    double sigma_;
+    operator long() const {
+        return static_cast<long>(mu());
+    }
+
+    operator float() const {
+        return static_cast<float>(mu());
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const Rating& r) {
+        os << "Rating(mu=" << r.mu() << ", sigma=" << r.sigma() << ")";
+        return os;
+    }
 };
 
 class TrueSkill {
 public:
-    TrueSkill(double mu = 25.0, double sigma = 8.33, double beta = 4.166, double tau = 0.083, double draw_probability = 0.1)
+    TrueSkill(double mu, double sigma, double beta, double tau, double draw_probability = 0.6)
         : mu_(mu), sigma_(sigma), beta_(beta), tau_(tau), draw_probability_(draw_probability) {}
 
-    std::vector<std::pair<double, double>> rate(const std::vector<std::vector<Player>>& teams) {
-        // 这里实现TrueSkill算法的核心逻辑
-        // 为简化示例,这里只实现一个基本的更新逻辑
+    std::vector<std::pair<double, double>> rate(const std::vector<std::vector<Player>>& teams, bool draw = false) {
         std::vector<std::pair<double, double>> new_ratings;
         
+        FactorGraph graph;
+        
+        // 创建变量和因子
         for (const auto& team : teams) {
-            double team_mu = 0.0, team_sigma_sq = 0.0;
             for (const auto& player : team) {
-                team_mu += player.mu();
-                team_sigma_sq += std::pow(player.sigma(), 2);
-            }
-            
-            double c = std::sqrt(team_sigma_sq + teams.size() * std::pow(beta_, 2));
-            double winningExpectation = calculateWinningExpectation(team_mu, c);
-            
-            for (const auto& player : team) {
-                double k = player.sigma() / c;
-                double new_mu = player.mu() + k * (winningExpectation - team_mu);
-                double new_sigma = player.sigma() * std::sqrt(1 - k * player.sigma() / c);
-                
-                new_ratings.emplace_back(new_mu, new_sigma);
+                auto var = graph.createVariable(player.mu(), player.sigma());
+                graph.addFactor(std::make_shared<PriorFactor>(var, player.mu(), player.sigma()));
             }
         }
         
+        // 添加队伍性能因子和比较因子
+        for (size_t i = 0; i < teams.size() - 1; ++i) {
+            auto team1_perf = graph.createVariable();
+            auto team2_perf = graph.createVariable();
+            
+            graph.addFactor(std::make_shared<PerformanceFactor>(team1_perf, teams[i]));
+            graph.addFactor(std::make_shared<PerformanceFactor>(team2_perf, teams[i+1]));
+            
+            graph.addFactor(std::make_shared<ComparisonFactor>(team1_perf, team2_perf, draw));
+        }
+
+        // 执行消息传递算法
+        graph.runInference();
+
+        // 更新玩家评分
+        for (const auto& var : graph.getVariables()) {
+            const auto& msg = var->getValue();
+            new_ratings.emplace_back(msg.mu(), msg.sigma());
+        }
+        
         return new_ratings;
+    }
+
+    // 其他辅助函数保持不变
+    // ...
+
+    double calculateWinProbability(const Rating& r1, const Rating& r2) {
+        double deltaMu = r1.mu() - r2.mu();
+        double sqrtSigma = std::sqrt(2 * std::pow(beta_, 2) + std::pow(r1.sigma(), 2) + std::pow(r2.sigma(), 2));
+        return trueskill::math::cdf(deltaMu / sqrtSigma);
     }
 
 private:
@@ -61,11 +89,8 @@ private:
     double beta_;
     double tau_;
     double draw_probability_;
-
-    double calculateWinningExpectation(double team_mu, double c) {
-        // 简化的胜率计算,实际实现需要更复杂的数学模型
-        return 1.0 / (1.0 + std::exp(-team_mu / c));
-    }
 };
+
+} // namespace trueskill
 
 #endif // TRUESKILL_HPP

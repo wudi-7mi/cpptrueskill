@@ -1,0 +1,6 @@
+# cfg
+.xmake
+.vscode
+
+# build
+build
