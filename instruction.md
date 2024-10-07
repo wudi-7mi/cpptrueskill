@@ -5,8 +5,4 @@
 - `src` 目录，里面放了 C++ 实现的一些文件，`mathematics.hpp` 中定义了高斯分布类、矩阵类和一些数学函数，`factors.hpp` 中定义了因子图的一些基本操作，`trueskill.hpp` 中定义了 TrueSkill 算法的一些基本操作。
 - `example.cpp` 是一个使用这个库的例子
 
-目前我们已经初步实现了简单的 TrueSkill 算法，但是还存在很多问题，需要你进一步完善。
-
-完善目标：
-
-- 根据 python 的实现，完善 `factors.hpp` 中的实现
+目前我们已经完成了 `src/mathematics.hpp` 和 `src/factors.hpp` 的实现，接下来需要你根据 `py/__init__.py` 中的实现，完善 `src/trueskill.hpp` 中的实现，注意涉及全局环境的那些都不需要。

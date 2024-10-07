@@ -27,7 +27,7 @@ inline double erf_approx(double x) {
 }
 
 inline double erf_inv(double x) {
-    const double a = 0.147;  // 常数项
+    const double a = 0.147;
     double sign_x = x >= 0 ? 1 : -1;
     double ln_term = std::log(1 - x * x);
     double part1 = 2 / (PI * a) + ln_term / 2;
@@ -74,8 +74,8 @@ inline double wasserstein_distance(double mu1, double sigma1, double mu2, double
 class Gaussian {
 public:
     Gaussian() : _pi(0), _tau(0) {}
-
-    Gaussian(double mu, double sigma) {
+    Gaussian(double mu, double sigma)
+        : _mu(mu), _sigma(sigma) {
         if (sigma <= 0) {
             throw std::invalid_argument("sigma should be greater than 0");
         }
@@ -86,8 +86,15 @@ public:
         _tau = mu * _pi;
     }
 
-    double mu() const { return _mu; }
-    double sigma() const { return _sigma; }
+    static Gaussian fromPiTau(double pi, double tau) {
+        auto g = Gaussian();
+        g.set_pi(pi);
+        g.set_tau(tau);
+        return g;
+    }
+
+    double mu() const { return _pi > 0 ? (_tau / _pi) : 0; }
+    double sigma() const { return _pi > 0 ? (1 / std::sqrt(_pi)) : INFINITY; }
     double pi() const { return _pi; }
     double tau() const { return _tau; }
 
@@ -106,15 +113,15 @@ public:
     }
 
     Gaussian operator*(const Gaussian& other) const {
-        double newPrecision = precision() + other.precision();
-        double newPrecisionMean = precisionMean() + other.precisionMean();
-        return fromPrecisionMean(newPrecisionMean, newPrecision);
+        double pi = _pi + other._pi;
+        double tau = _tau + other._tau;
+        return Gaussian::fromPiTau(pi, tau);
     }
 
     Gaussian operator/(const Gaussian& other) const {
-        double newPrecision = precision() - other.precision();
-        double newPrecisionMean = precisionMean() - other.precisionMean();
-        return fromPrecisionMean(newPrecisionMean, newPrecision);
+        double pi = _pi - other._pi;
+        double tau = _tau - other._tau;
+        return Gaussian::fromPiTau(pi, tau);
     }
 
     double logProductNormalization(const Gaussian& other) const {
@@ -129,7 +136,7 @@ public:
     }
 
     bool operator==(const Gaussian& other) const {
-        return (_mu == other._mu) && (_sigma == other._sigma);
+        return (_pi == other._pi) && (_tau == other._tau);
     }
 
     bool operator<(const Gaussian& other) const {
@@ -150,7 +157,7 @@ public:
 
     // Print function
     friend std::ostream& operator<<(std::ostream& os, const Gaussian& g) {
-        os << "Gaussian(mu=" << g.mu() << ", sigma=" << g.sigma() << ")";
+        os << "Gaussian(mu=" << g.mu() << ", sigma=" << g.sigma() << ", pi=" << g.pi() << ", tau=" << g.tau() << ")";
         return os;
     }
 
@@ -166,6 +173,8 @@ public:
     std::vector<std::vector<double>> data;
     int height, width;
 
+    Matrix(int height, int width) : height(height), width(width), data(height, std::vector<double>(width, 0)) {}
+
     Matrix(const std::vector<std::vector<double>>& src) : height(src.size()), width(src[0].size()), data(src) {
         for (const auto& row : src) {
             if (row.size() != width) {
@@ -180,6 +189,14 @@ public:
             int r = item.first.first, c = item.first.second;
             data[r][c] = item.second;
         }
+    }
+
+    double& operator()(int i, int j) {
+        return data[i][j];
+    }
+
+    const double& operator()(int i, int j) const {
+        return data[i][j];
     }
 
     Matrix transpose() const {

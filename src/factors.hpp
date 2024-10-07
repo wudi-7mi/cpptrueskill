@@ -42,7 +42,7 @@ public:
 
     double update_message(Node* factor, double pi = 0, double tau = 0) {
         auto old_message = this->messages[factor];
-        auto message = Gaussian(pi, tau);
+        auto message = Gaussian::fromPiTau(pi, tau);
         this->messages[factor] = message;
         return this->set(*this / old_message * message);
     }
@@ -55,7 +55,7 @@ public:
 
     double update_value(Node* factor, double pi = 0, double tau = 0) {
         auto old_message = this->messages[factor];
-        auto value = Gaussian(pi, tau);
+        auto value = Gaussian::fromPiTau(pi, tau);
         this->messages[factor] = value * old_message / *this;
         return this->set(value);
     }
@@ -108,9 +108,9 @@ public:
         : Factor({ var }), val(val), dynamic(dynamic) {}
 
     double down() override {
-        double sigma = std::sqrt(std::pow(val.tau() / val.pi(), 2) + std::pow(dynamic, 2));
-        math::Gaussian value(val.tau() / val.pi(), sigma);
-        return vars[0]->update_value(this, value.pi(), value.tau(), value);
+        double sigma = std::sqrt(std::pow(val.sigma(), 2) + std::pow(dynamic, 2));
+        math::Gaussian value(val.mu(), sigma);
+        return vars[0]->update_value(this, value);
     }
 };
 
