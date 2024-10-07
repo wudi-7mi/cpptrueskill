@@ -1,4 +1,3 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #include "../src/mathematics.hpp"
 
@@ -7,8 +6,9 @@ using namespace trueskill::math;
 
 TEST_CASE("Math function tests") {
     CHECK(cdf(0) == doctest::Approx(0.5));
+    CHECK(cdf(0.5) == doctest::Approx(0.691462));
     CHECK(pdf(0) == doctest::Approx(0.398942));
-    CHECK(ppf(0.5) == doctest::Approx(0).epsilon(0.01));
+    CHECK(pdf(0.5) == doctest::Approx(0.352065));
 }
 
 TEST_CASE("Gaussian class tests") {

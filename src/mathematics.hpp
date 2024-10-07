@@ -36,18 +36,22 @@ inline double erf_inv(double x) {
 }
 
 // 正态分布的累积分布函数 (CDF)
-inline double cdf(double x) {
-    return 0.5 * (1 + erf_approx(x / std::sqrt(2)));
+inline double cdf(double x, double mu = 0.0, double sigma = 1.0) {
+    return 0.5 * std::erfc(-(x - mu) / (sigma * std::sqrt(2)));
 }
 
 // 正态分布的概率密度函数 (PDF)
-inline double pdf(double x) {
-    return std::exp(-std::pow(x, 2) / 2) / SQRT_2PI;
+inline double pdf(double x, double mu = 0.0, double sigma = 1.0) {
+    return std::exp(-std::pow((x - mu) / sigma, 2) / 2) / (sigma * SQRT_2PI);
 }
 
-// 正态分布的逆累积分布函数
-inline double ppf(double x) {
-    return erf_inv(2 * x - 1) * std::sqrt(2);
+// 正态分布的逆累积分布函数 (Inverse CDF, PPF)
+inline double ppf(double x, double mu = 0.0, double sigma = 1.0) {
+    if (x < 0.0 || x > 1.0) {
+        throw std::domain_error("ppf input must be in range [0, 1]");
+    }
+
+    return mu - sigma * std::sqrt(2.0) * erf_inv(2.0 * x);
 }
 
 // 计算两个高斯分布的KL散度
@@ -69,23 +73,29 @@ inline double wasserstein_distance(double mu1, double sigma1, double mu2, double
 
 class Gaussian {
 public:
+    Gaussian() : _pi(0), _tau(0) {}
 
     Gaussian(double mu, double sigma) {
         if (sigma <= 0) {
             throw std::invalid_argument("sigma should be greater than 0");
         }
 
-        double pi = pow(sigma, -2);
-        double tau = mu * pi;
-        
-        this->_mu = mu;
-        this->_sigma = sigma;
-        this->_pi = pi;
-        this->_tau = tau;
+        _mu = mu;
+        _sigma = sigma;
+        _pi = pow(sigma, -2);
+        _tau = mu * _pi;
     }
 
     double mu() const { return _mu; }
     double sigma() const { return _sigma; }
+    double pi() const { return _pi; }
+    double tau() const { return _tau; }
+
+    void set_mu(double mu) { _mu = mu; }
+    void set_sigma(double sigma) { _sigma = sigma; }
+    void set_pi(double pi) { _pi = pi; }
+    void set_tau(double tau) { _tau = tau; }
+
     double variance() const { return _sigma * _sigma; }
     double precision() const { return 1.0 / variance(); }
     double precisionMean() const { return precision() * _mu; }
@@ -145,8 +155,8 @@ public:
     }
 
 private:
-    double _mu = 25;         // Mean
-    double _sigma = 8.333;   // Standard deviation
+    double _mu;
+    double _sigma;
     double _pi;
     double _tau;
 };

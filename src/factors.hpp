@@ -5,132 +5,205 @@
 #include <memory>
 #include <map>
 #include <cmath>
+#include <cassert>
+#include <iostream>
+
 #include "mathematics.hpp"
 
-class Factor;
+namespace trueskill {
 
-class Variable {
+constexpr double inf = std::numeric_limits<double>::infinity();
+
+class Node {
 public:
-    Variable(double mu = 0.0, double sigma = 1.0) : value_(mu, sigma) {}
-    void updateValue(const trueskill::math::Gaussian& newValue) { value_ = newValue; }
-    trueskill::math::Gaussian getValue() const { return value_; }
-    void updateMessage(const Factor* sender, const trueskill::math::Gaussian& msg) {
-        messages_[sender] = msg;
-    }
-    trueskill::math::Gaussian getMessageFrom(const Factor* sender) const {
-        auto it = messages_.find(sender);
-        return it != messages_.end() ? it->second : trueskill::math::Gaussian();
-    }
-
-private:
-    trueskill::math::Gaussian value_;
-    std::map<const Factor*, trueskill::math::Gaussian> messages_;
+    virtual ~Node() = default;
 };
 
-class Factor {
+class Variable : public Node, public math::Gaussian {
 public:
-    virtual void updateMessage(const Variable* receiver) = 0;
-    virtual ~Factor() = default;
-protected:
-    std::vector<std::shared_ptr<Variable>> variables_;
+    std::map<Node*, math::Gaussian> messages;
+
+    Variable() : math::Gaussian() {}
+
+    double set(const Gaussian& val) {
+        double delta = this->delta(val);
+        this->set_pi(val.pi());
+        this->set_tau(val.tau());
+        return delta;
+    }
+
+    double delta(const Gaussian& other) const {
+        double pi_delta = std::abs(this->pi() - other.pi());
+        if (pi_delta == inf) {
+            return 0.0;
+        }
+        return std::max(std::abs(this->tau() - other.tau()), std::sqrt(pi_delta));
+    }
+
+    double update_message(Node* factor, double pi = 0, double tau = 0) {
+        auto old_message = this->messages[factor];
+        auto message = Gaussian(pi, tau);
+        this->messages[factor] = message;
+        return this->set(*this / old_message * message);
+    }
+
+    double update_message(Node* factor, Gaussian message) {
+        auto old_message = this->messages[factor];
+        this->messages[factor] = message;
+        return this->set(*this / old_message * message);
+    }
+
+    double update_value(Node* factor, double pi = 0, double tau = 0) {
+        auto old_message = this->messages[factor];
+        auto value = Gaussian(pi, tau);
+        this->messages[factor] = value * old_message / *this;
+        return this->set(value);
+    }
+
+    double update_value(Node* factor, Gaussian value) {
+        auto old_message = this->messages[factor];
+        this->messages[factor] = value * old_message / *this;
+        return this->set(value);
+    }
+
+    Gaussian operator[](Node* factor) const {
+        return this->messages.at(factor);
+    }
+
+    Gaussian& operator[](Node* factor) {
+        return this->messages[factor];
+    }
+};
+
+class Factor : public Node {
+public:
+    std::vector<Variable*> vars;
+
+    Factor(const std::vector<Variable*>& variables) : vars(variables) {
+        for (Variable* var : variables) {
+            var->messages[this] = math::Gaussian();
+        }
+    }
+
+    virtual double down() {
+        return 0;
+    }
+
+    virtual double up() {
+        return 0;
+    }
+
+    Variable* var() const {
+        assert(vars.size() == 1);
+        return vars[0];
+    }
 };
 
 class PriorFactor : public Factor {
 public:
-    PriorFactor(std::shared_ptr<Variable> variable, double mu, double sigma)
-        : prior_(mu, sigma) {
-        variables_.push_back(variable);
-    }
+    math::Gaussian val;
+    double dynamic;
 
-    void updateMessage(const Variable* receiver) override {
-        receiver->updateValue(prior_);
-    }
+    PriorFactor(Variable* var, const math::Gaussian& val, double dynamic = 0)
+        : Factor({ var }), val(val), dynamic(dynamic) {}
 
-private:
-    trueskill::math::Gaussian prior_;
+    double down() override {
+        double sigma = std::sqrt(std::pow(val.tau() / val.pi(), 2) + std::pow(dynamic, 2));
+        math::Gaussian value(val.tau() / val.pi(), sigma);
+        return vars[0]->update_value(this, value.pi(), value.tau(), value);
+    }
 };
 
-class PerformanceFactor : public Factor {
+class LikelihoodFactor : public Factor {
 public:
-    PerformanceFactor(std::shared_ptr<Variable> team_perf, const std::vector<std::shared_ptr<Variable>>& player_skills)
-        : beta_(4.166) {
-        variables_.push_back(team_perf);
-        variables_.insert(variables_.end(), player_skills.begin(), player_skills.end());
+    double variance;
+
+    LikelihoodFactor(Variable* mean_var, Variable* value_var, double variance)
+        : Factor({ mean_var, value_var }), variance(variance) {}
+
+    double calc_a(const math::Gaussian& var) const {
+        return 1.0 / (1.0 + variance * var.pi());
     }
 
-    void updateMessage(const Variable* receiver) override {
-        trueskill::math::Gaussian teamPerf;
-        for (const auto& var : variables_) {
-            if (var.get() != receiver) {
-                teamPerf = teamPerf * var->getValue();
+    double down() override {
+        math::Gaussian msg = *vars[0] / (*vars[0])[this];
+        double a = calc_a(msg);
+        return vars[1]->update_message(this, a * msg.pi(), a * msg.tau());
+    }
+
+    double up() override {
+        math::Gaussian msg = *vars[1] / (*vars[1])[this];
+        double a = calc_a(msg);
+        return vars[0]->update_message(this, a * msg.pi(), a * msg.tau());
+    }
+};
+
+class SumFactor : public Factor {
+public:
+    std::vector<double> coeffs;
+
+    SumFactor(Variable* sum_var, const std::vector<Variable*>& term_vars, const std::vector<double>& coeffs)
+        : Factor({ sum_var }), coeffs(coeffs) {
+        vars.insert(vars.end(), term_vars.begin(), term_vars.end());
+    }
+
+    double down() override {
+        return update(vars[0], std::vector<Variable*>(vars.begin() + 1, vars.end()),
+                      coeffs);
+    }
+
+    double up(size_t index) {
+        double coeff = coeffs[index];
+        std::vector<double> new_coeffs;
+        for (size_t i = 0; i < coeffs.size(); ++i) {
+            if (i == index) {
+                new_coeffs.push_back(1.0 / coeff);
+            } else {
+                new_coeffs.push_back(-coeffs[i] / coeff);
             }
         }
-        trueskill::math::Gaussian msg = trueskill::math::Gaussian(teamPerf.mu(), std::sqrt(teamPerf.variance() + beta_ * beta_));
-        receiver->updateMessage(this, msg);
+        std::vector<Variable*> vals(vars.begin() + 1, vars.end());
+        vals[index] = vars[0];
+        return update(vars[index + 1], vals, new_coeffs);
     }
 
-private:
-    double beta_;
-};
-
-class ComparisonFactor : public Factor {
-public:
-    ComparisonFactor(std::shared_ptr<Variable> team1_perf, std::shared_ptr<Variable> team2_perf, bool draw)
-        : draw_(draw), epsilon_(0.1) {
-        variables_.push_back(team1_perf);
-        variables_.push_back(team2_perf);
-    }
-
-    void updateMessage(const Variable* receiver) override {
-        const Variable* other = (receiver == variables_[0].get()) ? variables_[1].get() : variables_[0].get();
-        trueskill::math::Gaussian msgFromOther = other->getMessageFrom(this);
-        trueskill::math::Gaussian otherValue = other->getValue();
-        trueskill::math::Gaussian likelihoodTimes = otherValue / msgFromOther;
-
-        double c = std::sqrt(1 + epsilon_ * epsilon_);
-        double v = trueskill::math::V((likelihoodTimes.mu() - receiver->getValue().mu()) / c, draw_ ? epsilon_ : 0);
-        double w = trueskill::math::W((likelihoodTimes.mu() - receiver->getValue().mu()) / c, draw_ ? epsilon_ : 0);
-        double newMu = receiver->getValue().mu() + receiver->getValue().sigma() * receiver->getValue().sigma() * v / c;
-        double newSigma = receiver->getValue().sigma() * std::sqrt(1 - receiver->getValue().sigma() * receiver->getValue().sigma() * w / (c * c));
-
-        trueskill::math::Gaussian newMsg(newMu, newSigma);
-        receiver->updateMessage(this, newMsg);
-    }
-
-private:
-    bool draw_;
-    double epsilon_;
-};
-
-class FactorGraph {
-public:
-    std::shared_ptr<Variable> createVariable(double mu = 0.0, double sigma = 1.0) {
-        auto var = std::make_shared<Variable>(mu, sigma);
-        variables_.push_back(var);
-        return var;
-    }
-
-    void addFactor(std::shared_ptr<Factor> factor) {
-        factors_.push_back(factor);
-    }
-
-    void runInference(int iterations = 5) {
-        for (int i = 0; i < iterations; ++i) {
-            for (const auto& factor : factors_) {
-                for (const auto& var : variables_) {
-                    factor->updateMessage(var.get());
-                }
-            }
+    double update(Variable* var, const std::vector<Variable*>& vals, const std::vector<double>& coeffs) {
+        double pi_inv = 0;
+        double mu = 0;
+        for (size_t i = 0; i < vals.size(); ++i) {
+            math::Gaussian div = *vals[i] / (*vals[i])[this];
+            mu += coeffs[i] * div.mu();
+            if (pi_inv == inf) continue;
+            pi_inv += std::pow(coeffs[i], 2) / div.pi();
         }
+        double pi = 1.0 / pi_inv;
+        double tau = pi * mu;
+        return var->update_message(this, pi, tau);
     }
-
-    const std::vector<std::shared_ptr<Variable>>& getVariables() const {
-        return variables_;
-    }
-
-private:
-    std::vector<std::shared_ptr<Variable>> variables_;
-    std::vector<std::shared_ptr<Factor>> factors_;
 };
+
+class TruncateFactor : public Factor {
+public:
+    double(*v_func)(double, double);
+    double(*w_func)(double, double);
+    double draw_margin;
+
+    TruncateFactor(Variable* var, double(*v_func)(double, double), double(*w_func)(double, double), double draw_margin)
+        : Factor({ var }), v_func(v_func), w_func(w_func), draw_margin(draw_margin) {}
+
+    double up() override {
+        Variable* val = vars[0];
+        math::Gaussian msg = (*val) / (*val)[this];
+        double sqrt_pi = std::sqrt(msg.pi());
+        double v = v_func(msg.tau() / sqrt_pi, draw_margin * sqrt_pi);
+        double w = w_func(msg.tau() / sqrt_pi, draw_margin * sqrt_pi);
+        double denom = 1.0 - w;
+        double pi = msg.pi() / denom;
+        double tau = (msg.tau() + sqrt_pi * v) / denom;
+        return val->update_value(this, pi, tau);
+    }
+};
+
+} // namespace trueskill
 
 #endif // FACTORS_HPP

@@ -31,9 +31,9 @@ target("example")
     add_includedirs("src")
 
 -- 定义测试目标
-target("test_mathematics")
+target("test_main")
     set_kind("binary")
-    add_files("tests/test_mathematics.cpp")
+    add_files("tests/test_main.cpp")
     add_deps("trueskill")
     add_packages("doctest")
-    add_includedirs("src, tests")
+    add_includedirs("src", "tests")
