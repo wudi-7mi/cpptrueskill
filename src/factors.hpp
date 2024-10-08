@@ -78,6 +78,7 @@ public:
 class Factor : public Node {
 public:
     std::vector<Variable*> vars;
+    std::string name = "Unnamed Factor";
 
     Factor(const std::vector<Variable*>& variables) : vars(variables) {
         for (Variable* var : variables) {
@@ -97,6 +98,11 @@ public:
         assert(vars.size() == 1);
         return vars[0];
     }
+
+    friend std::ostream& operator<<(std::ostream& os, const Factor& f) {
+        os << "Factor(vars=" << f.vars.size() << ", name=" << f.name << ")";
+        return os;
+    }
 };
 
 class PriorFactor : public Factor {
@@ -111,6 +117,11 @@ public:
         double sigma = std::sqrt(std::pow(val.sigma(), 2) + std::pow(dynamic, 2));
         math::Gaussian value(val.mu(), sigma);
         return vars[0]->update_value(this, value);
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const PriorFactor& f) {
+        os << "PriorFactor(var=" << f.vars[0] << ", val=" << f.val << ", dynamic=" << f.dynamic << ")";
+        return os;
     }
 };
 
@@ -135,6 +146,11 @@ public:
         math::Gaussian msg = *vars[1] / (*vars[1])[this];
         double a = calc_a(msg);
         return vars[0]->update_message(this, a * msg.pi(), a * msg.tau());
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const LikelihoodFactor& f) {
+        os << "LikelihoodFactor(mean_var=" << f.vars[0] << ", value_var=" << f.vars[1] << ", variance=" << f.variance << ")";
+        return os;
     }
 };
 
@@ -167,18 +183,23 @@ public:
         return update(vars[index + 1], vals, new_coeffs);
     }
 
-    double update(Variable* var, const std::vector<Variable*>& vals, const std::vector<double>& coeffs) {
+    double update(Variable* var, const std::vector<Variable*>& vals, const std::vector<double>& a_coeffs) {
         double pi_inv = 0;
         double mu = 0;
         for (size_t i = 0; i < vals.size(); ++i) {
             math::Gaussian div = *vals[i] / (*vals[i])[this];
-            mu += coeffs[i] * div.mu();
+            mu += a_coeffs[i] * div.mu();
             if (pi_inv == inf) continue;
-            pi_inv += std::pow(coeffs[i], 2) / div.pi();
+            pi_inv += std::pow(a_coeffs[i], 2) / div.pi();
         }
         double pi = 1.0 / pi_inv;
         double tau = pi * mu;
         return var->update_message(this, pi, tau);
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const SumFactor& f) {
+        os << "SumFactor(sum_var=" << f.vars[0] << ", term_vars=" << f.vars.size() << ", coeffs=" << f.coeffs.size() << ")";
+        return os;
     }
 };
 
@@ -201,6 +222,11 @@ public:
         double pi = msg.pi() / denom;
         double tau = (msg.tau() + sqrt_pi * v) / denom;
         return val->update_value(this, pi, tau);
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const TruncateFactor& f) {
+        os << "TruncateFactor(var=" << f.vars[0] << ", v_func=" << f.v_func << ", w_func=" << f.w_func << ", draw_margin=" << f.draw_margin << ")";
+        return os;
     }
 };
 

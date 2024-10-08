@@ -26,13 +26,27 @@ inline double erf_approx(double x) {
     return x >= 0 ? erf_val : -erf_val;
 }
 
-inline double erf_inv(double x) {
-    const double a = 0.147;
-    double sign_x = x >= 0 ? 1 : -1;
-    double ln_term = std::log(1 - x * x);
-    double part1 = 2 / (PI * a) + ln_term / 2;
-    double part2 = std::pow(part1, 2) - ln_term / a;
-    return sign_x * std::sqrt(std::sqrt(part2) - part1);
+inline double erf_inv(double y) {
+    if (y >= 2) {
+        return -100.0;
+    } else if (y <= 0) {
+        return 100.0;
+    }
+    
+    bool zero_point = (y < 1);
+    if (!zero_point) {
+        y = 2 - y;
+    }
+    
+    double t = std::sqrt(-2 * std::log(y / 2.0));
+    double x = -0.70711 * ((2.30753 + t * 0.27061) / (1.0 + t * (0.99229 + t * 0.04481)) - t);
+
+    for (int i = 0; i < 2; ++i) {
+        double err = erfc(x) - y;
+        x += err / (1.12837916709551257 * std::exp(-(x * x)) - x * err);
+    }
+
+    return zero_point ? x : -x;
 }
 
 // 正态分布的累积分布函数 (CDF)
@@ -175,7 +189,20 @@ public:
 
     Matrix(int height, int width) : height(height), width(width), data(height, std::vector<double>(width, 0)) {}
 
-    Matrix(const std::vector<std::vector<double>>& src) : height(src.size()), width(src[0].size()), data(src) {
+    Matrix(const std::vector<std::vector<double>>& src) {
+        if (src.empty()) {
+            throw std::invalid_argument("src cannot be empty");
+        }
+        
+        height = src.size();
+        width = src[0].size();
+        
+        if (width == 0) {
+            throw std::invalid_argument("src rows cannot be empty");
+        }
+        
+        data = src;
+        
         for (const auto& row : src) {
             if (row.size() != width) {
                 throw std::invalid_argument("src must be a rectangular array of numbers");
@@ -200,30 +227,36 @@ public:
     }
 
     Matrix transpose() const {
-        std::vector<std::vector<double>> transposed(width, std::vector<double>(height));
+        Matrix transposed(width, height);
+
         for (int r = 0; r < height; r++) {
             for (int c = 0; c < width; c++) {
-                transposed[c][r] = data[r][c];
+                transposed(c, r) = data[r][c];
             }
         }
-        return Matrix(transposed);
+        return transposed;
     }
 
     Matrix minor(int row_n, int col_n) const {
         if (row_n < 0 || row_n >= height || col_n < 0 || col_n >= width) {
             throw std::invalid_argument("Invalid row or column number");
         }
-        std::vector<std::vector<double>> minorMatrix;
+
+        Matrix minorMatrix(height - 1, width - 1);
+
+        int newRow = 0;
         for (int r = 0; r < height; r++) {
             if (r == row_n) continue;
-            std::vector<double> row;
+            
+            int newCol = 0;
             for (int c = 0; c < width; c++) {
                 if (c == col_n) continue;
-                row.push_back(data[r][c]);
+                minorMatrix(newRow, newCol) = data[r][c];
+                newCol++;
             }
-            minorMatrix.push_back(row);
+            newRow++;
         }
-        return Matrix(minorMatrix);
+        return minorMatrix;
     }
     
     Matrix adjugate() const {
@@ -231,19 +264,23 @@ public:
             throw std::invalid_argument("Only square matrix can be adjugated");
         }
 
-        std::vector<std::vector<double>> cofactors(height, std::vector<double>(width));
+        Matrix cofactors(height, width);
         for (int r = 0; r < height; r++) {
             for (int c = 0; c < width; c++) {
                 double sign = ((r + c) % 2 == 0) ? 1.0 : -1.0;
-                cofactors[r][c] = sign * minor(r, c).determinant();
+                cofactors(r, c) = sign * minor(r, c).determinant();
             }
         }
-        return Matrix(cofactors).transpose();
+        return cofactors.transpose();
     }
 
     Matrix inverse() const {
+        if (height == 1 && width == 1) {
+            return Matrix({{1.0 / data[0][0]}});
+        }
+
         double det = determinant();
-        if (det == 0) {
+        if (std::abs(det) < 1e-10) {
             throw std::invalid_argument("Matrix is singular, can't find its inverse");
         }
         return adjugate() * (1.0 / det);

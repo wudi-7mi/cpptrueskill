@@ -3,7 +3,6 @@
 
 #include <vector>
 #include <cmath>
-#include <random>
 #include <algorithm>
 #include <memory>
 #include <stdexcept>
@@ -23,24 +22,6 @@ const double DEFAULT_TAU = DEFAULT_SIGMA / 100.0;
 const double DEFAULT_DRAW_PROBABILITY = 0.1;
 const double DEFAULT_DELTA = 1e-4;
 const double DEFAULT_EPSILON = 1e-6;
-
-double calc_draw_probability(double draw_margin, int size, double beta) {
-    return 2 * trueskill::math::cdf(draw_margin / (std::sqrt(size) * beta)) - 1;
-}
-
-double calc_draw_margin(double draw_probability, int size, double beta) {
-    return beta * std::sqrt(size) * trueskill::math::ppf((draw_probability + 1) / 2);
-}
-
-std::vector<int> _team_sizes(const std::vector<std::vector<Rating>>& rating_groups) {
-    std::vector<int> team_sizes;
-    team_sizes.push_back(0);
-    for (const auto& group : rating_groups) {
-        team_sizes.push_back(group.size() + team_sizes.back());
-    }
-    team_sizes.erase(team_sizes.begin());
-    return team_sizes;
-}
 
 class Rating : public math::Gaussian {
 public:
@@ -65,6 +46,63 @@ public:
     }
 };
 
+double v_win(double diff, double draw_margin) {
+    double x = diff - draw_margin;
+    double denom = trueskill::math::cdf(x);
+    return (std::abs(denom) > DEFAULT_EPSILON) ? (trueskill::math::pdf(x) / denom) : -x;
+}
+
+double v_draw(double diff, double draw_margin) {
+    double abs_diff = std::abs(diff);
+    double a = draw_margin - abs_diff;
+    double b = -draw_margin - abs_diff;
+    double denom = trueskill::math::cdf(a) - trueskill::math::cdf(b);
+    double numer = trueskill::math::pdf(b) - trueskill::math::pdf(a);
+    double f1 = (std::abs(denom) > DEFAULT_EPSILON) ? (numer / denom) : a;
+    double f2 = (diff < 0) ? -1 : +1;
+    return f1 * f2;
+}
+
+double w_win(double diff, double draw_margin) {
+    double x = diff - draw_margin;
+    double v = v_win(diff, draw_margin);
+    double w = v * (v + x);
+    if (0 < w && w < 1) {
+        return w;
+    }
+    throw std::runtime_error("w_win: w is out of range");
+}
+
+double w_draw(double diff, double draw_margin) {
+    double abs_diff = std::abs(diff);
+    double a = draw_margin - abs_diff;
+    double b = -draw_margin - abs_diff;
+    double denom = trueskill::math::cdf(a) - trueskill::math::cdf(b);
+    if (std::abs(denom) < DEFAULT_EPSILON) {
+        throw std::runtime_error("w_draw: denominator is too small");
+    }
+    double v = v_draw(abs_diff, draw_margin);
+    return v * v + (a * trueskill::math::pdf(a) - b * trueskill::math::pdf(b)) / denom;
+}
+
+double calc_draw_probability(double draw_margin, int size, double beta) {
+    return 2 * trueskill::math::cdf(draw_margin / (std::sqrt(size) * beta)) - 1;
+}
+
+double calc_draw_margin(double draw_probability, int size, double beta) {
+    return beta * std::sqrt(size) * trueskill::math::ppf((draw_probability + 1) / 2);
+}
+
+std::vector<int> _team_sizes(const std::vector<std::vector<Rating>>& rating_groups) {
+    std::vector<int> team_sizes;
+    team_sizes.push_back(0);
+    for (const auto& group : rating_groups) {
+        team_sizes.push_back(group.size() + team_sizes.back());
+    }
+    team_sizes.erase(team_sizes.begin());
+    return team_sizes;
+}
+
 class TrueSkill {
 public:
     TrueSkill(
@@ -83,45 +121,6 @@ public:
             sigma = _sigma;
         }
         return Rating(mu, sigma);
-    }
-
-    double v_win(double diff, double draw_margin) {
-        double x = diff - draw_margin;
-        double denom = trueskill::math::cdf(x);
-        return (std::abs(denom) > DEFAULT_EPSILON) ? (trueskill::math::pdf(x) / denom) : -x;
-    }
-
-    double v_draw(double diff, double draw_margin) {
-        double abs_diff = std::abs(diff);
-        double a = draw_margin - abs_diff;
-        double b = -draw_margin - abs_diff;
-        double denom = trueskill::math::cdf(a) - trueskill::math::cdf(b);
-        double numer = trueskill::math::pdf(b) - trueskill::math::pdf(a);
-        double f1 = (std::abs(denom) > DEFAULT_EPSILON) ? (numer / denom) : a;
-        double f2 = (diff < 0) ? -1 : +1;
-        return f1 * f2;
-    }
-
-    double w_win(double diff, double draw_margin) {
-        double x = diff - draw_margin;
-        double v = v_win(diff, draw_margin);
-        double w = v * (v + x);
-        if (0 < w && w < 1) {
-            return w;
-        }
-        throw std::runtime_error("w_win: w is out of range");
-    }
-
-    double w_draw(double diff, double draw_margin) {
-        double abs_diff = std::abs(diff);
-        double a = draw_margin - abs_diff;
-        double b = -draw_margin - abs_diff;
-        double denom = trueskill::math::cdf(a) - trueskill::math::cdf(b);
-        if (std::abs(denom) < DEFAULT_EPSILON) {
-            throw std::runtime_error("w_draw: denominator is too small");
-        }
-        double v = v_draw(abs_diff, draw_margin);
-        return v * v + (a * trueskill::math::pdf(a) - b * trueskill::math::pdf(b)) / denom;
     }
 
     std::vector<std::vector<Rating>> rate(const std::vector<std::vector<Rating>>& rating_groups, 
@@ -161,171 +160,195 @@ public:
         }
 
         // Build factor graph
-        auto graph = build_factor_graph(sorted_rating_groups, sorted_ranks, sorted_weights);
-        run_schedule(graph, min_delta);
-
-        // Process results
-        std::vector<std::vector<Rating>> result(group_size);
-        for (size_t i = 0; i < group_size; ++i) {
-            const auto& team = sorted_rating_groups[i];
-            std::vector<Rating> new_ratings;
-            for (const auto& rating : team) {
-                new_ratings.emplace_back(rating.mu(), rating.sigma());
-            }
-            result[sorting_indices[i]] = std::move(new_ratings);
-        }
-
-        return result;
-    }
-
-    std::tuple<std::function<void()>, std::function<void()>, 
-               std::function<void()>, std::function<void()>, 
-               std::function<void()>> 
-    factor_graph_builders(const std::vector<std::vector<Rating>>& rating_groups, 
-                          const std::vector<int>& ranks, 
-                          const std::vector<std::vector<double>>& weights) {
-        std::vector<double> flatten_ratings;
+        std::vector<Rating> flatten_ratings;
         std::vector<double> flatten_weights;
-        
-        for (const auto& group : rating_groups) {
+        for (const auto& group : sorted_rating_groups) {
             flatten_ratings.insert(flatten_ratings.end(), group.begin(), group.end());
         }
 
-        for (const auto& group : weights) {
+        for (const auto& group : sorted_weights) {
             flatten_weights.insert(flatten_weights.end(), group.begin(), group.end());
         }
 
-        int size = flatten_ratings.size();
-        int group_size = rating_groups.size();
-        
-        // 创建变量
+        size_t size = flatten_ratings.size();
+        size_t rating_group_size = rating_groups.size();
+
         std::vector<Variable> rating_vars(size);
         std::vector<Variable> perf_vars(size);
-        std::vector<Variable> team_perf_vars(group_size);
-        std::vector<Variable> team_diff_vars(group_size - 1);
+        std::vector<Variable> team_perf_vars(rating_group_size);
+        std::vector<Variable> team_diff_vars(rating_group_size - 1);
         std::vector<int> team_sizes = _team_sizes(rating_groups);
 
-        auto build_rating_layer = [&]() {
-            for (size_t i = 0; i < size; ++i) {
-                yield PriorFactor(rating_vars[i], flatten_ratings[i], this->tau);
-            }
-        };
-
-        auto build_perf_layer = [&]() {
-            for (size_t i = 0; i < size; ++i) {
-                yield LikelihoodFactor(rating_vars[i], perf_vars[i], this->beta * this->beta);
-            }
-        };
-
-        auto build_team_perf_layer = [&]() {
-            for (int team = 0; team < group_size; ++team) {
-                int start = (team > 0) ? team_sizes[team - 1] : 0;
-                int end = team_sizes[team];
-                std::vector<Variable> child_perf_vars(perf_vars.begin() + start, perf_vars.begin() + end);
-                std::vector<double> coeffs(flatten_weights.begin() + start, flatten_weights.begin() + end);
-                yield SumFactor(team_perf_vars[team], child_perf_vars, coeffs);
-            }
-        };
-
-        auto build_team_diff_layer = [&]() {
-            for (int team = 0; team < team_diff_vars.size(); ++team) {
-                yield SumFactor(team_diff_vars[team], 
-                                std::vector<Variable>{team_perf_vars[team], team_perf_vars[team + 1]}, 
-                                std::vector<double>{1.0, -1.0});
-            }
-        };
-
-        auto build_trunc_layer = [&]() {
-            for (size_t x = 0; x < team_diff_vars.size(); ++x) {
-                double draw_probability_value = (draw_probability) ? draw_probability() : 0.0;
-                int size = rating_groups[x].size() + rating_groups[x + 1].size();
-                double draw_margin = calc_draw_margin(draw_probability_value, size, this);
-                // 处理排名相等的情况
-                std::function<double()> v_func = (ranks[x] == ranks[x + 1]) ? v_draw : v_win;
-                std::function<double()> w_func = (ranks[x] == ranks[x + 1]) ? w_draw : w_win;
-                yield TruncateFactor(team_diff_vars[x], v_func, w_func, draw_margin);
-            }
-        };
-
-        // 返回生成器
-        return std::make_tuple(build_rating_layer, build_perf_layer, build_team_perf_layer, build_team_diff_layer, build_trunc_layer);
-    }
-
-    std::vector<std::vector<Factor*>> run_schedule(std::function<void()> build_rating_layer, 
-                                                    std::function<void()> build_perf_layer, 
-                                                    std::function<void()> build_team_perf_layer, 
-                                                    std::function<void()> build_team_diff_layer, 
-                                                    std::function<void()> build_trunc_layer, 
-                                                    double min_delta) {
-        if (min_delta <= 0) {
-            throw std::invalid_argument("min_delta must be greater than 0");
+        std::vector<PriorFactor*> rating_layer;
+        for (size_t i = 0; i < size; ++i) {
+            auto* pf = new PriorFactor(&rating_vars[i], flatten_ratings[i], _tau);
+            rating_layer.push_back(pf);
         }
-        std::vector<std::vector<Factor*>> layers;
 
-        auto build = [&](std::vector<std::function<void()>> builders) {
-            std::vector<std::vector<Factor*>> layers_built;
-            for (auto& builder : builders) {
-                layers_built.push_back(builder());
+        std::vector<LikelihoodFactor*> perf_layer;
+        for (size_t i = 0; i < size; ++i) {
+            auto* lf = new LikelihoodFactor(&rating_vars[i], &perf_vars[i], _beta * _beta);
+            perf_layer.push_back(lf);
+        }
+
+        std::vector<SumFactor*> team_perf_layer;
+        for (size_t team = 0; team < rating_group_size; ++team) {
+            size_t start = (team > 0) ? team_sizes[team - 1] : 0;
+            size_t end = team_sizes[team];
+            std::vector<Variable*> child_perf_vars;
+            for (size_t i = start; i < end; ++i) {
+                child_perf_vars.push_back(&perf_vars[i]);
             }
-            layers.insert(layers.end(), layers_built.begin(), layers_built.end());
-            return layers_built;
-        };
+            std::vector<double> coeffs;
+            for (size_t i = start; i < end; ++i) {
+                coeffs.push_back(flatten_weights[i]);
+            }
+            auto* sf = new SumFactor(&team_perf_vars[team], child_perf_vars, coeffs);
+            team_perf_layer.push_back(sf);
+        }
 
-        // 构建层
-        auto layers_built = build({ build_rating_layer, build_perf_layer, build_team_perf_layer });
-        auto rating_layer = layers_built[0];
-        auto perf_layer = layers_built[1];
-        auto team_perf_layer = layers_built[2];
+        std::vector<SumFactor*> team_diff_layer;
+        for (size_t team = 0; team < rating_group_size - 1; ++team) {
+            auto* sf = new SumFactor(&team_diff_vars[team], {&team_perf_vars[team], &team_perf_vars[team + 1]}, {1, -1});
+            team_diff_layer.push_back(sf);
+        }
+
+        std::vector<TruncateFactor*> trunc_layer;
+        for (size_t x = 0; x < team_diff_vars.size(); ++x) {
+            int rg_size = rating_groups[x].size() + rating_groups[x + 1].size();
+            double draw_margin = calc_draw_margin(_draw_probability, rg_size, _beta);
+            auto v_func = (sorted_ranks[x] == sorted_ranks[x + 1]) ? v_draw : v_win;
+            auto w_func = (sorted_ranks[x] == sorted_ranks[x + 1]) ? w_draw : w_win;
+            auto* tf = new TruncateFactor(&team_diff_vars[x], v_func, w_func, draw_margin);
+            trunc_layer.push_back(tf);
+        }
 
         for (auto& f : rating_layer) {
             f->down();
         }
-        // 处理后续箭头
-        auto team_diff_layer = build_team_diff_layer();
-        auto trunc_layer = build_trunc_layer();
-        int team_diff_len = team_diff_layer.size();
-        
+        for (auto& f : perf_layer) {
+            f->down();
+        }
+        for (auto& f : team_perf_layer) {
+            f->down();
+        }
+
+        size_t team_diff_len = team_diff_layer.size();
         for (int x = 0; x < 10; ++x) {
+            double delta = 0;
             if (team_diff_len == 1) {
                 team_diff_layer[0]->down();
-                double delta = trunc_layer[0]->up();
+                delta = trunc_layer[0]->up();
             } else {
-                double delta = 0;
-                for (int x = 0; x < team_diff_len - 1; ++x) {
-                    team_diff_layer[x]->down();
-                    delta = std::max(delta, trunc_layer[x]->up());
-                    team_diff_layer[x]->up(1);
+                for (size_t y = 0; y < team_diff_len - 1; ++y) {
+                    team_diff_layer[y]->down();
+                    delta = std::max(delta, trunc_layer[y]->up());
+                    team_diff_layer[y]->up(1);
                 }
-                for (int x = team_diff_len - 1; x > 0; --x) {
-                    team_diff_layer[x]->down();
-                    delta = std::max(delta, trunc_layer[x]->up());
-                    team_diff_layer[x]->up(0);
+                for (size_t y = team_diff_len - 1; y > 0; --y) {
+                    team_diff_layer[y]->down();
+                    delta = std::max(delta, trunc_layer[y]->up());
+                    team_diff_layer[y]->up(0);
                 }
             }
+
             if (delta <= min_delta) {
                 break;
             }
         }
 
-        // 处理剩余的箭头
         team_diff_layer[0]->up(0);
         team_diff_layer[team_diff_len - 1]->up(1);
-        
+
         for (auto& f : team_perf_layer) {
             for (size_t x = 0; x < f->vars.size() - 1; ++x) {
                 f->up(x);
             }
         }
+
         for (auto& f : perf_layer) {
             f->up();
         }
-        return layers;
+
+        auto sorted_team_sizes = _team_sizes(sorted_rating_groups);
+
+        // Create transformed groups
+        std::vector<std::vector<Rating>> transformed_groups;
+        for (size_t i = 0, start = 0; i < sorted_team_sizes.size(); ++i) {
+            size_t end = sorted_team_sizes[i];
+            std::vector<Rating> group;
+            for (size_t j = start; j < end; ++j) {
+                group.push_back(Rating(static_cast<double>(rating_layer[j]->vars[0]->mu()),
+                                    static_cast<double>(rating_layer[j]->vars[0]->sigma())));
+            }
+            transformed_groups.push_back(group);
+            start = end;
+        }
+
+        // Sort the groups based on the original sorting hint
+        std::vector<std::tuple<int, std::vector<Rating>>> unsorted_groups;
+        for (size_t i = 0; i < sorting_indices.size(); ++i) {
+            unsorted_groups.push_back(std::make_tuple(sorting_indices[i], transformed_groups[i]));
+        }
+
+        // Sorting function based on the first element (original order)
+        auto by_hint = [](const std::tuple<int, std::vector<Rating>>& a,
+                        const std::tuple<int, std::vector<Rating>>& b) {
+            return std::get<0>(a) < std::get<0>(b);
+        };
+
+        std::sort(unsorted_groups.begin(), unsorted_groups.end(), by_hint);
+
+        std::vector<std::vector<Rating>> result;
+        for (const auto& item : unsorted_groups) {
+            result.push_back(std::get<1>(item));
+        }
+        return result;
+    }
+
+    double quality(const std::vector<std::vector<Rating>>& rating_groups, 
+                  const std::vector<std::vector<double>>& weights = std::vector<std::vector<double>>()) {
+        auto validated_rating_groups = validate_rating_groups(rating_groups);
+        auto validated_weights = validate_weights(weights, validated_rating_groups);
+
+        std::vector<Rating> flatten_ratings;
+        for (const auto& group : validated_rating_groups) {
+            flatten_ratings.insert(flatten_ratings.end(), group.begin(), group.end());
+        }
+        std::vector<double> flatten_weights;
+        for (const auto& group : validated_weights) {
+            flatten_weights.insert(flatten_weights.end(), group.begin(), group.end());
+        }
+
+        size_t length = flatten_ratings.size();
+
+        auto mean_matrix = create_mean_matrix(flatten_ratings);
+        auto variance_matrix = create_variance_matrix(flatten_ratings);
+        auto rotated_a_matrix = create_rotated_a_matrix(validated_rating_groups, flatten_weights);
+        auto a_matrix = rotated_a_matrix.transpose();
+
+        math::Matrix _ata = (rotated_a_matrix * std::pow(_beta, 2)) * a_matrix;
+        math::Matrix _atsa = rotated_a_matrix * variance_matrix * a_matrix;
+        math::Matrix start = mean_matrix.transpose() * a_matrix;
+        math::Matrix middle = _ata + _atsa;
+        math::Matrix end = rotated_a_matrix * mean_matrix;
+
+        auto m_earg = (start * middle.inverse() * end * -0.5);
+        auto e_arg = m_earg.determinant();
+        auto s_arg = _ata.determinant() / middle.determinant();
+
+        return std::exp(e_arg) * std::sqrt(s_arg);
     }
 
     double calculateWinProbability(const Rating& r1, const Rating& r2) {
         double deltaMu = r1.mu() - r2.mu();
         double sqrtSigma = std::sqrt(2 * std::pow(_beta, 2) + std::pow(r1.sigma(), 2) + std::pow(r2.sigma(), 2));
         return trueskill::math::cdf(deltaMu / sqrtSigma);
+    }
+
+    double expose(Rating rating) {
+        double k = _mu / _sigma;
+        return rating.mu() - k * rating.sigma();
     }
 
 private:
@@ -359,26 +382,44 @@ private:
         return weights;
     }
 
-    math::Matrix build_rotated_a_matrix(const std::vector<std::vector<Rating>>& rating_groups,
+    math::Matrix create_mean_matrix(const std::vector<Rating>& ratings) {
+            int length = ratings.size();
+            math::Matrix mean_matrix(length, 1);
+            for (int i = 0; i < length; ++i) {
+                mean_matrix(i, 0) = ratings[i].mu();
+            }
+            return mean_matrix;
+        }
+
+    math::Matrix create_variance_matrix(const std::vector<Rating>& ratings) {
+        int length = ratings.size();
+        math::Matrix variance_matrix(length, length);
+        for (int i = 0; i < length; ++i) {
+            variance_matrix(i, i) = std::pow(ratings[i].sigma(), 2);
+        }
+        return variance_matrix;
+    }
+
+    math::Matrix create_rotated_a_matrix(const std::vector<std::vector<Rating>>& rating_groups,
                                         const std::vector<double>& flatten_weights) {
-        size_t height = rating_groups.size() - 1;
-        size_t width = 0;
+        int height = rating_groups.size() - 1;
+        int width = 0;
         for (const auto& group : rating_groups) {
             width += group.size();
         }
 
         math::Matrix matrix(height, width);
-        size_t t = 0;
-        for (size_t r = 0; r < height; ++r) {
+        int t = 0;
+        for (int r = 0; r < height; ++r) {
             const auto& cur = rating_groups[r];
             const auto& next = rating_groups[r + 1];
             
-            for (size_t x = t; x < t + cur.size(); ++x) {
+            for (int x = t; x < t + cur.size(); ++x) {
                 matrix(r, x) = flatten_weights[x];
             }
             t += cur.size();
-            
-            for (size_t x = t; x < t + next.size(); ++x) {
+
+            for (int x = t; x < t + next.size(); ++x) {
                 matrix(r, x) = -flatten_weights[x];
             }
         }
@@ -386,13 +427,18 @@ private:
         return matrix;
     }
 
-    double expose(Rating rating) {
-        double k = _mu / _sigma;
-        return rating.mu() - k * rating.sigma();
-    }
-
     // Add other necessary private helper functions here
 };
+
+double quality_1vs1(const Rating& r1, const Rating& r2) {
+    TrueSkill ts;
+    return ts.quality({{r1}, {r2}});
+}
+
+std::vector<std::vector<Rating>> rate_1vs1(const Rating& r1, const Rating& r2) {
+    TrueSkill ts;
+    return ts.rate({{r1}, {r2}});
+}
 
 } // namespace trueskill
 
