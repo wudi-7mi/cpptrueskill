@@ -1,5 +1,11 @@
 # cpp TrueSkill
 
-编写中...
+```shell
+# 测试
+xmake build test_main
+xmake run test_main
 
-Under construction...
+# 示例
+xmake build example
+xmake run example
+```
