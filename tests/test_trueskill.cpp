@@ -41,3 +41,51 @@ TEST_CASE("Quality and rate 1vs1 test") {
     CHECK(bob_mu == doctest::Approx(20.604));
     CHECK(bob_sigma == doctest::Approx(7.17148));
 }
+
+TEST_CASE("Quality and rate multiple teams test") {
+
+    SUBCASE("Calculate ratings for different teams") {
+        trueskill::TrueSkill ts(25.0, 8.333333, 4.2, 0.3, 0.1);
+
+        Rating alice(34.23, 7.22);
+        Rating bob(24.23, 3.22);   
+        Rating charlie(12.23, 3.9);
+        Rating david(26.23, 6.11);
+        Rating eve(41.2, 4.22);
+        Rating frank(24.23, 5.08);
+        Rating gloria(4.23, 3.08);
+
+        std::vector<std::vector<double>> weights = {{1.0, 1.0}, {0.8, 1.0}, {1.0, 1.0, 1.0}};
+
+        std::vector<std::vector<Rating>> teams = {{alice, bob}, {charlie, david}, {eve, frank, gloria}};
+
+        double quality = ts.quality(teams, weights);
+        CHECK(quality == doctest::Approx(0.01439));
+        std::cout << "quality: " << quality << std::endl;
+
+        auto newTeams = ts.rate(teams, {2, 1, 3}, weights);
+        auto new_alice = newTeams[0][0];
+        auto new_bob = newTeams[0][1];
+        auto new_charlie = newTeams[1][0];
+        auto new_david = newTeams[1][1];
+        auto new_eve = newTeams[2][0];
+        auto new_frank = newTeams[2][1];
+        auto new_gloria = newTeams[2][2];
+
+        CHECK(new_alice.mu() == doctest::Approx(31.0297));
+        CHECK(new_bob.mu() == doctest::Approx(23.589));
+        CHECK(new_charlie.mu() == doctest::Approx(15.5848));
+        CHECK(new_david.mu() == doctest::Approx(36.4867));
+        CHECK(new_eve.mu() == doctest::Approx(37.3913));
+        CHECK(new_frank.mu() == doctest::Approx(18.7194));
+        CHECK(new_gloria.mu() == doctest::Approx(2.1922));
+        
+        CHECK(new_alice.sigma() == doctest::Approx(5.8226));
+        CHECK(new_bob.sigma() == doctest::Approx(3.11829));
+        CHECK(new_charlie.sigma() == doctest::Approx(3.77367));
+        CHECK(new_david.sigma() == doctest::Approx(5.24585));
+        CHECK(new_eve.sigma() == doctest::Approx(4.00044));
+        CHECK(new_frank.sigma() == doctest::Approx(4.68291));
+        CHECK(new_gloria.sigma() == doctest::Approx(3.00565));
+    }
+}
