@@ -4,8 +4,6 @@ En / [中文](README.md)
 
 This is a header-only C++ implementation of TrueSkill, fully based on a [Python implementation](https://github.com/sublee/trueskill).
 
-[中文版](README.md)
-
 ## Usage Example
 
 Please refer to the [example.cpp](example.cpp) file.
