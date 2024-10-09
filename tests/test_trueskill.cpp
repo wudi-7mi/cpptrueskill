@@ -61,7 +61,6 @@ TEST_CASE("Quality and rate multiple teams test") {
 
         double quality = ts.quality(teams, weights);
         CHECK(quality == doctest::Approx(0.01439));
-        std::cout << "quality: " << quality << std::endl;
 
         auto newTeams = ts.rate(teams, {2, 1, 3}, weights);
         auto new_alice = newTeams[0][0];
