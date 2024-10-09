@@ -21,25 +21,51 @@ TEST_CASE("vw function tests") {
 }
 
 TEST_CASE("Quality and rate 1vs1 test") {
-    Rating alice;
-    Rating bob;
 
-    double quality = quality_1vs1(alice, bob);
-    CHECK(quality == doctest::Approx(0.447214));
+    SUBCASE("1v1 win") {
+        Rating alice;
+        Rating bob;
 
-    auto result = rate_1vs1(alice, bob);
-    auto new_alice = result[0][0];
-    auto new_bob = result[1][0];
+        double quality = quality_1vs1(alice, bob);
+        CHECK(quality == doctest::Approx(0.447214));
 
-    double alice_mu = new_alice.mu();
-    double alice_sigma = new_alice.sigma();
-    double bob_mu = new_bob.mu();
-    double bob_sigma = new_bob.sigma();
+        auto result = rate_1vs1(alice, bob);
+        auto new_alice = result[0][0];
+        auto new_bob = result[1][0];
 
-    CHECK(alice_mu == doctest::Approx(29.396));
-    CHECK(alice_sigma == doctest::Approx(7.17148));
-    CHECK(bob_mu == doctest::Approx(20.604));
-    CHECK(bob_sigma == doctest::Approx(7.17148));
+        double alice_mu = new_alice.mu();
+        double alice_sigma = new_alice.sigma();
+        double bob_mu = new_bob.mu();
+        double bob_sigma = new_bob.sigma();
+
+        CHECK(alice_mu == doctest::Approx(29.396));
+        CHECK(alice_sigma == doctest::Approx(7.17148));
+        CHECK(bob_mu == doctest::Approx(20.604));
+        CHECK(bob_sigma == doctest::Approx(7.17148));
+    } 
+    
+    SUBCASE("1v1 draw") {
+        Rating alice(21, 8);
+        Rating bob;
+
+        double quality = quality_1vs1(alice, bob);
+        CHECK(quality == doctest::Approx(0.433285));
+
+        auto result = rate_1vs1(alice, bob, true);
+        auto new_alice = result[0][0];
+        auto new_bob = result[1][0];
+
+        double alice_mu = new_alice.mu();
+        double alice_sigma = new_alice.sigma();
+        double bob_mu = new_bob.mu();
+        double bob_sigma = new_bob.sigma();
+
+        CHECK(alice_mu == doctest::Approx(22.5207));
+        CHECK(alice_sigma == doctest::Approx(6.29868));
+        CHECK(bob_mu == doctest::Approx(23.350));
+        CHECK(bob_sigma == doctest::Approx(6.38765));
+    }
+
 }
 
 TEST_CASE("Quality and rate multiple teams test") {

@@ -123,6 +123,75 @@ public:
         return Rating(mu, sigma);
     }
 
+    static std::vector<std::vector<Rating>> validate_rating_groups(const std::vector<std::vector<Rating>>& rating_groups) {
+        if (rating_groups.size() < 2) {
+            throw std::invalid_argument("Need multiple rating groups");
+        }
+        if (std::any_of(rating_groups.begin(), rating_groups.end(), 
+                        [](const auto& group) { return group.empty(); })) {
+            throw std::invalid_argument("Each group must contain multiple ratings");
+        }
+        return rating_groups;
+    }
+
+    static std::vector<std::vector<double>> validate_weights(
+        const std::vector<std::vector<double>>& weights,
+        const std::vector<std::vector<Rating>>& rating_groups) {
+        if (weights.empty()) {
+            std::vector<std::vector<double>> default_weights;
+            for (const auto& group : rating_groups) {
+                default_weights.push_back(std::vector<double>(group.size(), 1.0));
+            }
+            return default_weights;
+        }
+        return weights;
+    }
+
+    static math::Matrix create_mean_matrix(const std::vector<Rating>& ratings) {
+            int length = ratings.size();
+            math::Matrix mean_matrix(length, 1);
+            for (int i = 0; i < length; ++i) {
+                mean_matrix(i, 0) = ratings[i].mu();
+            }
+            return mean_matrix;
+        }
+
+    static math::Matrix create_variance_matrix(const std::vector<Rating>& ratings) {
+        int length = ratings.size();
+        math::Matrix variance_matrix(length, length);
+        for (int i = 0; i < length; ++i) {
+            variance_matrix(i, i) = std::pow(ratings[i].sigma(), 2);
+        }
+        return variance_matrix;
+    }
+
+    static math::Matrix create_rotated_a_matrix(const std::vector<std::vector<Rating>>& rating_groups,
+                                        const std::vector<double>& flatten_weights) {
+        int height = rating_groups.size() - 1;
+        int width = 0;
+        for (const auto& group : rating_groups) {
+            width += group.size();
+        }
+
+        math::Matrix matrix(height, width);
+        int t = 0;
+        for (int r = 0; r < height; ++r) {
+            const auto& cur = rating_groups[r];
+            const auto& next = rating_groups[r + 1];
+            
+            for (int x = t; x < t + cur.size(); ++x) {
+                matrix(r, x) = flatten_weights[x];
+            }
+            t += cur.size();
+
+            for (int x = t; x < t + next.size(); ++x) {
+                matrix(r, x) = -flatten_weights[x];
+            }
+        }
+
+        return matrix;
+    }
+
     std::vector<std::vector<Rating>> rate(const std::vector<std::vector<Rating>>& rating_groups, 
                                           const std::vector<int>& ranks = std::vector<int>(),
                                           const std::vector<std::vector<double>>& weights = std::vector<std::vector<double>>(),
@@ -351,83 +420,17 @@ public:
         return rating.mu() - k * rating.sigma();
     }
 
+    friend std::ostream& operator<<(std::ostream& os, const TrueSkill& ts) {
+        os << "TrueSkill(mu=" << ts._mu << ", sigma=" << ts._sigma << ", beta=" << ts._beta << ", tau=" << ts._tau << ", draw_probability=" << ts._draw_probability << ")";
+        return os;
+    }
+
 private:
     double _mu;
     double _sigma;
     double _beta;
     double _tau;
     double _draw_probability;
-
-    std::vector<std::vector<Rating>> validate_rating_groups(const std::vector<std::vector<Rating>>& rating_groups) {
-        if (rating_groups.size() < 2) {
-            throw std::invalid_argument("Need multiple rating groups");
-        }
-        if (std::any_of(rating_groups.begin(), rating_groups.end(), 
-                        [](const auto& group) { return group.empty(); })) {
-            throw std::invalid_argument("Each group must contain multiple ratings");
-        }
-        return rating_groups;
-    }
-
-    std::vector<std::vector<double>> validate_weights(
-        const std::vector<std::vector<double>>& weights,
-        const std::vector<std::vector<Rating>>& rating_groups) {
-        if (weights.empty()) {
-            std::vector<std::vector<double>> default_weights;
-            for (const auto& group : rating_groups) {
-                default_weights.push_back(std::vector<double>(group.size(), 1.0));
-            }
-            return default_weights;
-        }
-        return weights;
-    }
-
-    math::Matrix create_mean_matrix(const std::vector<Rating>& ratings) {
-            int length = ratings.size();
-            math::Matrix mean_matrix(length, 1);
-            for (int i = 0; i < length; ++i) {
-                mean_matrix(i, 0) = ratings[i].mu();
-            }
-            return mean_matrix;
-        }
-
-    math::Matrix create_variance_matrix(const std::vector<Rating>& ratings) {
-        int length = ratings.size();
-        math::Matrix variance_matrix(length, length);
-        for (int i = 0; i < length; ++i) {
-            variance_matrix(i, i) = std::pow(ratings[i].sigma(), 2);
-        }
-        return variance_matrix;
-    }
-
-    math::Matrix create_rotated_a_matrix(const std::vector<std::vector<Rating>>& rating_groups,
-                                        const std::vector<double>& flatten_weights) {
-        int height = rating_groups.size() - 1;
-        int width = 0;
-        for (const auto& group : rating_groups) {
-            width += group.size();
-        }
-
-        math::Matrix matrix(height, width);
-        int t = 0;
-        for (int r = 0; r < height; ++r) {
-            const auto& cur = rating_groups[r];
-            const auto& next = rating_groups[r + 1];
-            
-            for (int x = t; x < t + cur.size(); ++x) {
-                matrix(r, x) = flatten_weights[x];
-            }
-            t += cur.size();
-
-            for (int x = t; x < t + next.size(); ++x) {
-                matrix(r, x) = -flatten_weights[x];
-            }
-        }
-
-        return matrix;
-    }
-
-    // Add other necessary private helper functions here
 };
 
 double quality_1vs1(const Rating& r1, const Rating& r2) {
@@ -435,8 +438,11 @@ double quality_1vs1(const Rating& r1, const Rating& r2) {
     return ts.quality({{r1}, {r2}});
 }
 
-std::vector<std::vector<Rating>> rate_1vs1(const Rating& r1, const Rating& r2) {
+std::vector<std::vector<Rating>> rate_1vs1(const Rating& r1, const Rating& r2, bool drawn = false) {
     TrueSkill ts;
+    if (drawn) {
+        return ts.rate({{r1}, {r2}}, {0, 0});
+    }
     return ts.rate({{r1}, {r2}});
 }
 
