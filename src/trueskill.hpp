@@ -4,11 +4,8 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
-#include <memory>
 #include <stdexcept>
 #include <numeric>
-#include <functional>
-#include <iterator>
 
 #include "mathematics.hpp"
 #include "factors.hpp"
@@ -46,13 +43,13 @@ public:
     }
 };
 
-double v_win(double diff, double draw_margin) {
+inline double v_win(double diff, double draw_margin) {
     double x = diff - draw_margin;
     double denom = trueskill::math::cdf(x);
     return (std::abs(denom) > DEFAULT_EPSILON) ? (trueskill::math::pdf(x) / denom) : -x;
 }
 
-double v_draw(double diff, double draw_margin) {
+inline double v_draw(double diff, double draw_margin) {
     double abs_diff = std::abs(diff);
     double a = draw_margin - abs_diff;
     double b = -draw_margin - abs_diff;
@@ -63,7 +60,7 @@ double v_draw(double diff, double draw_margin) {
     return f1 * f2;
 }
 
-double w_win(double diff, double draw_margin) {
+inline double w_win(double diff, double draw_margin) {
     double x = diff - draw_margin;
     double v = v_win(diff, draw_margin);
     double w = v * (v + x);
@@ -73,7 +70,7 @@ double w_win(double diff, double draw_margin) {
     throw std::runtime_error("w_win: w is out of range");
 }
 
-double w_draw(double diff, double draw_margin) {
+inline double w_draw(double diff, double draw_margin) {
     double abs_diff = std::abs(diff);
     double a = draw_margin - abs_diff;
     double b = -draw_margin - abs_diff;
@@ -81,20 +78,20 @@ double w_draw(double diff, double draw_margin) {
     if (std::abs(denom) < DEFAULT_EPSILON) {
         throw std::runtime_error("w_draw: denominator is too small");
     }
-    double v = v_draw(abs_diff, draw_margin);
+    double v = v_draw(diff, draw_margin);
     return v * v + (a * trueskill::math::pdf(a) - b * trueskill::math::pdf(b)) / denom;
 }
 
-double calc_draw_probability(double draw_margin, int size, double beta) {
+inline double calc_draw_probability(double draw_margin, int size, double beta) {
     return 2 * trueskill::math::cdf(draw_margin / (std::sqrt(size) * beta)) - 1;
 }
 
-double calc_draw_margin(double draw_probability, int size, double beta) {
+inline double calc_draw_margin(double draw_probability, int size, double beta) {
     return beta * std::sqrt(size) * trueskill::math::ppf((draw_probability + 1) / 2);
 }
 
-std::vector<int> _team_sizes(const std::vector<std::vector<Rating>>& rating_groups) {
-    std::vector<int> team_sizes;
+inline std::vector<std::size_t> _team_sizes(const std::vector<std::vector<Rating>>& rating_groups) {
+    std::vector<std::size_t> team_sizes;
     team_sizes.push_back(0);
     for (const auto& group : rating_groups) {
         team_sizes.push_back(group.size() + team_sizes.back());
@@ -148,18 +145,18 @@ public:
     }
 
     static math::Matrix create_mean_matrix(const std::vector<Rating>& ratings) {
-            int length = ratings.size();
+            std::size_t length = ratings.size();
             math::Matrix mean_matrix(length, 1);
-            for (int i = 0; i < length; ++i) {
+            for (std::size_t i = 0; i < length; ++i) {
                 mean_matrix(i, 0) = ratings[i].mu();
             }
             return mean_matrix;
         }
 
     static math::Matrix create_variance_matrix(const std::vector<Rating>& ratings) {
-        int length = ratings.size();
+        std::size_t length = ratings.size();
         math::Matrix variance_matrix(length, length);
-        for (int i = 0; i < length; ++i) {
+        for (std::size_t i = 0; i < length; ++i) {
             variance_matrix(i, i) = std::pow(ratings[i].sigma(), 2);
         }
         return variance_matrix;
@@ -167,24 +164,24 @@ public:
 
     static math::Matrix create_rotated_a_matrix(const std::vector<std::vector<Rating>>& rating_groups,
                                         const std::vector<double>& flatten_weights) {
-        int height = rating_groups.size() - 1;
-        int width = 0;
+        std::size_t height = rating_groups.size() - 1;
+        std::size_t width = 0;
         for (const auto& group : rating_groups) {
             width += group.size();
         }
 
         math::Matrix matrix(height, width);
-        int t = 0;
-        for (int r = 0; r < height; ++r) {
+        std::size_t t = 0;
+        for (std::size_t r = 0; r < height; ++r) {
             const auto& cur = rating_groups[r];
             const auto& next = rating_groups[r + 1];
             
-            for (int x = t; x < t + cur.size(); ++x) {
+            for (std::size_t x = t; x < t + cur.size(); ++x) {
                 matrix(r, x) = flatten_weights[x];
             }
             t += cur.size();
 
-            for (int x = t; x < t + next.size(); ++x) {
+            for (std::size_t x = t; x < t + next.size(); ++x) {
                 matrix(r, x) = -flatten_weights[x];
             }
         }
@@ -246,7 +243,7 @@ public:
         std::vector<Variable> perf_vars(size);
         std::vector<Variable> team_perf_vars(rating_group_size);
         std::vector<Variable> team_diff_vars(rating_group_size - 1);
-        std::vector<int> team_sizes = _team_sizes(rating_groups);
+        std::vector<std::size_t> team_sizes = _team_sizes(sorted_rating_groups);
 
         std::vector<PriorFactor*> rating_layer;
         for (size_t i = 0; i < size; ++i) {
@@ -284,7 +281,7 @@ public:
 
         std::vector<TruncateFactor*> trunc_layer;
         for (size_t x = 0; x < team_diff_vars.size(); ++x) {
-            int rg_size = rating_groups[x].size() + rating_groups[x + 1].size();
+            int rg_size = static_cast<int>(sorted_rating_groups[x].size() + sorted_rating_groups[x + 1].size());
             double draw_margin = calc_draw_margin(_draw_probability, rg_size, _beta);
             auto v_func = (sorted_ranks[x] == sorted_ranks[x + 1]) ? v_draw : v_win;
             auto w_func = (sorted_ranks[x] == sorted_ranks[x + 1]) ? w_draw : w_win;
@@ -389,7 +386,7 @@ public:
             flatten_weights.insert(flatten_weights.end(), group.begin(), group.end());
         }
 
-        size_t length = flatten_ratings.size();
+        // size_t length = flatten_ratings.size();
 
         auto mean_matrix = create_mean_matrix(flatten_ratings);
         auto variance_matrix = create_variance_matrix(flatten_ratings);
@@ -433,12 +430,12 @@ private:
     double _draw_probability;
 };
 
-double quality_1vs1(const Rating& r1, const Rating& r2) {
+inline double quality_1vs1(const Rating& r1, const Rating& r2) {
     TrueSkill ts;
     return ts.quality({{r1}, {r2}});
 }
 
-std::vector<std::vector<Rating>> rate_1vs1(const Rating& r1, const Rating& r2, bool drawn = false) {
+inline std::vector<std::vector<Rating>> rate_1vs1(const Rating& r1, const Rating& r2, bool drawn = false) {
     TrueSkill ts;
     if (drawn) {
         return ts.rate({{r1}, {r2}}, {0, 0});

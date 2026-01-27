@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 #include <map>
 #include <iomanip>
@@ -49,17 +50,17 @@ inline double erf_inv(double y) {
     return zero_point ? x : -x;
 }
 
-// 正态分布的累积分布函数 (CDF)
+// CDF
 inline double cdf(double x, double mu = 0.0, double sigma = 1.0) {
     return 0.5 * std::erfc(-(x - mu) / (sigma * std::sqrt(2)));
 }
 
-// 正态分布的概率密度函数 (PDF)
+// PDF
 inline double pdf(double x, double mu = 0.0, double sigma = 1.0) {
     return std::exp(-std::pow((x - mu) / sigma, 2) / 2) / (sigma * SQRT_2PI);
 }
 
-// 正态分布的逆累积分布函数 (Inverse CDF, PPF)
+// Inverse CDF, PPF
 inline double ppf(double x, double mu = 0.0, double sigma = 1.0) {
     if (x < 0.0 || x > 1.0) {
         throw std::domain_error("ppf input must be in range [0, 1]");
@@ -68,26 +69,26 @@ inline double ppf(double x, double mu = 0.0, double sigma = 1.0) {
     return mu - sigma * std::sqrt(2.0) * erf_inv(2.0 * x);
 }
 
-// 计算两个高斯分布的KL散度
+// Calculate KL divergence between two Gaussian distributions
 inline double kl_divergence(double mu1, double sigma1, double mu2, double sigma2) {
     return std::log(sigma2 / sigma1) + (std::pow(sigma1, 2) + std::pow(mu1 - mu2, 2)) / (2 * std::pow(sigma2, 2)) - 0.5;
 }
 
-// 计算两个高斯分布的Hellinger距离
+// Calculate Hellinger distance between two Gaussian distributions
 inline double hellinger_distance(double mu1, double sigma1, double mu2, double sigma2) {
     double term1 = std::pow(mu1 - mu2, 2) / (4 * (std::pow(sigma1, 2) + std::pow(sigma2, 2)));
     double term2 = 0.5 * std::log((std::pow(sigma1, 2) + std::pow(sigma2, 2)) / (2 * sigma1 * sigma2));
     return std::sqrt(1 - std::exp(-term1 - term2));
 }
 
-// 计算两个高斯分布的Wasserstein距离
+// Calculate Wasserstein distance between two Gaussian distributions
 inline double wasserstein_distance(double mu1, double sigma1, double mu2, double sigma2) {
     return std::sqrt(std::pow(mu1 - mu2, 2) + std::pow(sigma1 - sigma2, 2));
 }
 
 class Gaussian {
 public:
-    Gaussian() : _pi(0), _tau(0) {}
+    Gaussian() : _mu(0), _sigma(INFINITY), _pi(0), _tau(0) {}
     Gaussian(double mu, double sigma)
         : _mu(mu), _sigma(sigma) {
         if (sigma <= 0) {
@@ -112,10 +113,42 @@ public:
     double pi() const { return _pi; }
     double tau() const { return _tau; }
 
-    void set_mu(double mu) { _mu = mu; }
-    void set_sigma(double sigma) { _sigma = sigma; }
-    void set_pi(double pi) { _pi = pi; }
-    void set_tau(double tau) { _tau = tau; }
+    void set_mu(double mu) {
+        _mu = mu;
+        if (_sigma > 0 && std::isfinite(_sigma)) {
+            _pi = std::pow(_sigma, -2);
+            _tau = _mu * _pi;
+        }
+    }
+
+    void set_sigma(double sigma) {
+        if (sigma <= 0) {
+            throw std::invalid_argument("sigma should be greater than 0");
+        }
+        _sigma = sigma;
+        _pi = std::pow(_sigma, -2);
+        _tau = _mu * _pi;
+    }
+
+    void set_pi(double pi) {
+        _pi = pi;
+        if (_pi > 0) {
+            _sigma = 1.0 / std::sqrt(_pi);
+            _mu = _tau / _pi;
+        } else {
+            _sigma = INFINITY;
+            _mu = 0;
+        }
+    }
+
+    void set_tau(double tau) {
+        _tau = tau;
+        if (_pi > 0) {
+            _mu = _tau / _pi;
+        } else {
+            _mu = 0;
+        }
+    }
 
     double variance() const { return _sigma * _sigma; }
     double precision() const { return 1.0 / variance(); }
@@ -184,10 +217,10 @@ private:
 
 class Matrix {
 public:
+    std::size_t height, width;
     std::vector<std::vector<double>> data;
-    int height, width;
 
-    Matrix(int height, int width) : height(height), width(width), data(height, std::vector<double>(width, 0)) {}
+    Matrix(std::size_t height, std::size_t width) : height(height), width(width), data(height, std::vector<double>(width, 0)) {}
 
     Matrix(const std::vector<std::vector<double>>& src) {
         if (src.empty()) {
@@ -218,38 +251,38 @@ public:
         }
     }
 
-    double& operator()(int i, int j) {
+    double& operator()(std::size_t i, std::size_t j) {
         return data[i][j];
     }
 
-    const double& operator()(int i, int j) const {
+    const double& operator()(std::size_t i, std::size_t j) const {
         return data[i][j];
     }
 
     Matrix transpose() const {
         Matrix transposed(width, height);
 
-        for (int r = 0; r < height; r++) {
-            for (int c = 0; c < width; c++) {
+        for (std::size_t r = 0; r < height; r++) {
+            for (std::size_t c = 0; c < width; c++) {
                 transposed(c, r) = data[r][c];
             }
         }
         return transposed;
     }
 
-    Matrix minor(int row_n, int col_n) const {
-        if (row_n < 0 || row_n >= height || col_n < 0 || col_n >= width) {
+    Matrix minor(std::size_t row_n, std::size_t col_n) const {
+        if (row_n >= height || col_n >= width) {
             throw std::invalid_argument("Invalid row or column number");
         }
 
         Matrix minorMatrix(height - 1, width - 1);
 
-        int newRow = 0;
-        for (int r = 0; r < height; r++) {
+        std::size_t newRow = 0;
+        for (std::size_t r = 0; r < height; r++) {
             if (r == row_n) continue;
             
-            int newCol = 0;
-            for (int c = 0; c < width; c++) {
+            std::size_t newCol = 0;
+            for (std::size_t c = 0; c < width; c++) {
                 if (c == col_n) continue;
                 minorMatrix(newRow, newCol) = data[r][c];
                 newCol++;
@@ -265,8 +298,8 @@ public:
         }
 
         Matrix cofactors(height, width);
-        for (int r = 0; r < height; r++) {
-            for (int c = 0; c < width; c++) {
+        for (std::size_t r = 0; r < height; r++) {
+            for (std::size_t c = 0; c < width; c++) {
                 double sign = ((r + c) % 2 == 0) ? 1.0 : -1.0;
                 cofactors(r, c) = sign * minor(r, c).determinant();
             }
@@ -291,8 +324,8 @@ public:
             throw std::invalid_argument("Matrices must be the same size for addition");
         }
         std::vector<std::vector<double>> result(height, std::vector<double>(width));
-        for (int r = 0; r < height; r++) {
-            for (int c = 0; c < width; c++) {
+        for (std::size_t r = 0; r < height; r++) {
+            for (std::size_t c = 0; c < width; c++) {
                 result[r][c] = data[r][c] + other.data[r][c];
             }
         }
@@ -304,9 +337,9 @@ public:
             throw std::invalid_argument("Bad size for multiplication");
         }
         std::vector<std::vector<double>> result(height, std::vector<double>(other.width));
-        for (int r = 0; r < height; r++) {
-            for (int c = 0; c < other.width; c++) {
-                for (int k = 0; k < width; k++) {
+        for (std::size_t r = 0; r < height; r++) {
+            for (std::size_t c = 0; c < other.width; c++) {
+                for (std::size_t k = 0; k < width; k++) {
                     result[r][c] += data[r][k] * other.data[k][c];
                 }
             }
@@ -316,8 +349,8 @@ public:
 
     Matrix operator*(double scalar) const {
         std::vector<std::vector<double>> result(height, std::vector<double>(width));
-        for (int r = 0; r < height; r++) {
-            for (int c = 0; c < width; c++) {
+        for (std::size_t r = 0; r < height; r++) {
+            for (std::size_t c = 0; c < width; c++) {
                 result[r][c] = data[r][c] * scalar;
             }
         }
@@ -335,7 +368,7 @@ public:
         }
 
         double det = 0;
-        for (int c = 0; c < width; c++) {
+        for (std::size_t c = 0; c < width; c++) {
             det += ((c % 2 == 0) ? 1 : -1) * data[0][c] * minor(0, c).determinant();
         }
         return det;

@@ -37,7 +37,7 @@ TEST_CASE("Gaussian class tests") {
 
 TEST_CASE("Matrix class tests") {
     SUBCASE("Matrix Initialization") {
-        // 测试通过二维向量初始化
+        // Test initialization from 2D vector
         std::vector<std::vector<double>> data = {
             {1, 2, 3},
             {4, 5, 6},
@@ -50,7 +50,7 @@ TEST_CASE("Matrix class tests") {
         CHECK(m1.data[1][1] == 5);
         CHECK(m1.data[2][2] == 9);
 
-        // 测试通过 map 初始化
+        // Test initialization from map
         std::map<std::pair<int, int>, double> sparse_data = {
             {{0, 0}, 1.0},
             {{1, 1}, 2.0},

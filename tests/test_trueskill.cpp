@@ -114,3 +114,26 @@ TEST_CASE("Quality and rate multiple teams test") {
         CHECK(new_gloria.sigma() == doctest::Approx(3.00565));
     }
 }
+
+TEST_CASE("Rate keeps team boundaries when ranks reorder") {
+    TrueSkill ts;
+
+    Rating a1(30, 6);
+    Rating a2(25, 5);
+    Rating b1(20, 7);
+
+    std::vector<std::vector<Rating>> teams_ab = {{a1, a2}, {b1}};
+    std::vector<std::vector<Rating>> teams_ba = {{b1}, {a1, a2}};
+
+    auto result_ab = ts.rate(teams_ab, {1, 0});
+    auto result_ba = ts.rate(teams_ba, {0, 1});
+
+    auto approx_rating = [](const Rating& lhs, const Rating& rhs) {
+        CHECK(lhs.mu() == doctest::Approx(rhs.mu()));
+        CHECK(lhs.sigma() == doctest::Approx(rhs.sigma()));
+    };
+
+    approx_rating(result_ab[0][0], result_ba[1][0]);
+    approx_rating(result_ab[0][1], result_ba[1][1]);
+    approx_rating(result_ab[1][0], result_ba[0][0]);
+}

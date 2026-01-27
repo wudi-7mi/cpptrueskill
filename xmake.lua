@@ -9,7 +9,7 @@ set_xmakever("2.5.0")
 set_languages("c++17")
 
 -- 添加编译选项
-add_cxflags("-Wall", "-Wextra", "-pedantic")
+add_cxflags("-Wall")
 
 -- 设置构建模式
 add_rules("mode.debug", "mode.release")

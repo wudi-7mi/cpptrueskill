@@ -2,8 +2,8 @@
 #define FACTORS_HPP
 
 #include <vector>
-#include <memory>
 #include <map>
+#include <limits>
 #include <cmath>
 #include <cassert>
 #include <iostream>
