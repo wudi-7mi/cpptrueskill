@@ -309,7 +309,7 @@ public:
 
     Matrix inverse() const {
         if (height == 1 && width == 1) {
-            return Matrix({{1.0 / data[0][0]}});
+            return Matrix(std::vector<std::vector<double>>{{1.0 / data[0][0]}});
         }
 
         double det = determinant();
