@@ -1,8 +1,8 @@
-# cpp TrueSkill
+# C++ TrueSkill Through Time
 
 En / [中文](README.md)
 
-This is a header-only C++ implementation of TrueSkill, fully based on a [Python implementation](https://github.com/sublee/trueskill).
+This C++17 header-only library provides both classic TrueSkill and TrueSkill Through Time. The TTT implementation follows [TrueSkillThroughTime.py](https://github.com/glandfried/TrueSkillThroughTime.py) 2.0, including temporal inference, Ordinal/Continuous/Discrete observations, online updates, and model evidence.
 
 ## Usage Example
 
@@ -70,6 +70,66 @@ for (const auto& team : newTeams) {
     std::cout << std::endl;
 }
 ```
+
+### TTT Game Model
+
+`Game` exposes each player's likelihood and posterior together with the evidence of the observed result. These values form the basis of temporal message propagation.
+
+```cpp
+trueskill::Player alice(trueskill::math::Gaussian(25, 25.0 / 3), 25.0 / 6, 0.03);
+trueskill::Player bob(trueskill::math::Gaussian(25, 25.0 / 3), 25.0 / 6, 0.03);
+
+// As in Python TrueSkillThroughTime, a larger result means a better placement.
+trueskill::Game game({{alice}, {bob}}, {1, 0});
+auto posteriors = game.posteriors();
+double evidence = game.evidence;
+```
+
+Note that classic `TrueSkill::rate()` accepts ranks where a smaller value is better, while TTT `Game` results use larger values for better placements.
+
+### Historical Inference
+
+```cpp
+trueskill::History::Composition composition = {
+    {{"alice"}, {"bob"}},
+    {{"bob"}, {"charlie"}},
+    {{"charlie"}, {"alice"}}
+};
+trueskill::History::Results results = {{1, 0}, {1, 0}, {1, 0}};
+
+trueskill::History history(composition, results, {1, 2, 3});
+history.convergence();
+auto curves = history.learning_curves();
+double log_evidence = history.log_evidence();
+```
+
+`History` groups games by time, propagates uncertainty using `gamma * sqrt(elapsed_time)`, and iterates forward and backward messages. Custom priors, per-player `beta/gamma`, team weights, and simultaneous games are supported.
+
+### Mixed Observations and Incremental Updates
+
+```cpp
+std::vector<trueskill::Observation> observations = {
+    trueskill::Observation::Ordinal,
+    trueskill::Observation::Continuous,
+    trueskill::Observation::Discrete
+};
+
+trueskill::History online_history(
+    composition, results, {1, 2, 3}, {},
+    0, 3, 1, 0.15, 0, true, {}, observations);
+online_history.convergence();
+online_history.add_history({{{"alice"}, {"charlie"}}}, {{2, 0}});
+online_history.convergence();
+```
+
+- `Ordinal`: wins, rankings, and draws.
+- `Continuous`: continuous differences such as time or distance.
+- `Discrete`: Poisson counts such as goals or points, using a fixed-point Gaussian approximation.
+- `online=true`: freezes online estimates per revealed time batch while retaining smoothed posteriors.
+
+### State Persistence
+
+`History::save(std::ostream&)` and `History::load(std::istream&)` preserve the complete converged state, including forward/backward messages, likelihoods, online estimates, and evidence. The current versioned native binary format is intended for restoring state within the same build ecosystem.
 
 ## Compile and Run
 

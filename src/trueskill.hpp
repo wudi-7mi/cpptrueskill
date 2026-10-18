@@ -4,11 +4,16 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <memory>
 #include <stdexcept>
 #include <numeric>
 
 #include "mathematics.hpp"
 #include "factors.hpp"
+#include "game.hpp"
+#include "history.hpp"
+#include "player.hpp"
+#include "skill.hpp"
 
 namespace trueskill {
 
@@ -245,19 +250,22 @@ public:
         std::vector<Variable> team_diff_vars(rating_group_size - 1);
         std::vector<std::size_t> team_sizes = _team_sizes(sorted_rating_groups);
 
-        std::vector<PriorFactor*> rating_layer;
+        std::vector<std::unique_ptr<PriorFactor>> rating_layer;
+        rating_layer.reserve(size);
         for (size_t i = 0; i < size; ++i) {
-            auto* pf = new PriorFactor(&rating_vars[i], flatten_ratings[i], _tau);
-            rating_layer.push_back(pf);
+            rating_layer.push_back(std::make_unique<PriorFactor>(
+                &rating_vars[i], flatten_ratings[i], _tau));
         }
 
-        std::vector<LikelihoodFactor*> perf_layer;
+        std::vector<std::unique_ptr<LikelihoodFactor>> perf_layer;
+        perf_layer.reserve(size);
         for (size_t i = 0; i < size; ++i) {
-            auto* lf = new LikelihoodFactor(&rating_vars[i], &perf_vars[i], _beta * _beta);
-            perf_layer.push_back(lf);
+            perf_layer.push_back(std::make_unique<LikelihoodFactor>(
+                &rating_vars[i], &perf_vars[i], _beta * _beta));
         }
 
-        std::vector<SumFactor*> team_perf_layer;
+        std::vector<std::unique_ptr<SumFactor>> team_perf_layer;
+        team_perf_layer.reserve(rating_group_size);
         for (size_t team = 0; team < rating_group_size; ++team) {
             size_t start = (team > 0) ? team_sizes[team - 1] : 0;
             size_t end = team_sizes[team];
@@ -269,24 +277,28 @@ public:
             for (size_t i = start; i < end; ++i) {
                 coeffs.push_back(flatten_weights[i]);
             }
-            auto* sf = new SumFactor(&team_perf_vars[team], child_perf_vars, coeffs);
-            team_perf_layer.push_back(sf);
+            team_perf_layer.push_back(std::make_unique<SumFactor>(
+                &team_perf_vars[team], child_perf_vars, coeffs));
         }
 
-        std::vector<SumFactor*> team_diff_layer;
+        std::vector<std::unique_ptr<SumFactor>> team_diff_layer;
+        team_diff_layer.reserve(rating_group_size - 1);
         for (size_t team = 0; team < rating_group_size - 1; ++team) {
-            auto* sf = new SumFactor(&team_diff_vars[team], {&team_perf_vars[team], &team_perf_vars[team + 1]}, {1, -1});
-            team_diff_layer.push_back(sf);
+            team_diff_layer.push_back(std::make_unique<SumFactor>(
+                &team_diff_vars[team],
+                std::vector<Variable*>{&team_perf_vars[team], &team_perf_vars[team + 1]},
+                std::vector<double>{1, -1}));
         }
 
-        std::vector<TruncateFactor*> trunc_layer;
+        std::vector<std::unique_ptr<TruncateFactor>> trunc_layer;
+        trunc_layer.reserve(team_diff_vars.size());
         for (size_t x = 0; x < team_diff_vars.size(); ++x) {
             int rg_size = static_cast<int>(sorted_rating_groups[x].size() + sorted_rating_groups[x + 1].size());
             double draw_margin = calc_draw_margin(_draw_probability, rg_size, _beta);
             auto v_func = (sorted_ranks[x] == sorted_ranks[x + 1]) ? v_draw : v_win;
             auto w_func = (sorted_ranks[x] == sorted_ranks[x + 1]) ? w_draw : w_win;
-            auto* tf = new TruncateFactor(&team_diff_vars[x], v_func, w_func, draw_margin);
-            trunc_layer.push_back(tf);
+            trunc_layer.push_back(std::make_unique<TruncateFactor>(
+                &team_diff_vars[x], v_func, w_func, draw_margin));
         }
 
         for (auto& f : rating_layer) {

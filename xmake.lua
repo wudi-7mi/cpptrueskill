@@ -1,6 +1,6 @@
 -- 设置项目名称和版本
 set_project("TrueSkill")
-set_version("1.0.0")
+set_version("2.0.0")
 
 -- 设置最小xmake版本
 set_xmakever("2.5.0")

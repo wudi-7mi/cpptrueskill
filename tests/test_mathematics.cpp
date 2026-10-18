@@ -25,6 +25,32 @@ TEST_CASE("Gaussian class tests") {
         Gaussian g1(10, 2);
         Gaussian g2(20, 3);
 
+        Gaussian sum = g1 + g2;
+        CHECK(sum.mu() == doctest::Approx(30));
+        CHECK(sum.sigma() == doctest::Approx(std::sqrt(13.0)));
+
+        Gaussian difference = g1 - g2;
+        CHECK(difference.mu() == doctest::Approx(-10));
+        CHECK(difference.sigma() == doctest::Approx(std::sqrt(13.0)));
+
+        Gaussian scaled = g1 * -2.0;
+        CHECK(scaled.mu() == doctest::Approx(-20));
+        CHECK(scaled.sigma() == doctest::Approx(4));
+
+        Gaussian left_scaled = 0.5 * g2;
+        CHECK(left_scaled.mu() == doctest::Approx(10));
+        CHECK(left_scaled.sigma() == doctest::Approx(1.5));
+
+        Gaussian zero = g1 * 0.0;
+        CHECK(zero.mu() == doctest::Approx(0));
+        CHECK(zero.sigma() == doctest::Approx(0));
+        CHECK(zero.pi() == std::numeric_limits<double>::infinity());
+
+        Gaussian point_mass(5, 0);
+        CHECK(point_mass.mu() == doctest::Approx(5));
+        CHECK(point_mass.sigma() == doctest::Approx(0));
+        CHECK(point_mass.tau() == doctest::Approx(0));
+
         Gaussian g3 = g1 * g2;
         CHECK(g3.mu() == doctest::Approx(13.0769));
         CHECK(g3.sigma() == doctest::Approx(1.6641));

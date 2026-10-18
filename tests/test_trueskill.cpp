@@ -137,3 +137,18 @@ TEST_CASE("Rate keeps team boundaries when ranks reorder") {
     approx_rating(result_ab[0][1], result_ba[1][1]);
     approx_rating(result_ab[1][0], result_ba[0][0]);
 }
+
+TEST_CASE("Rate can release factor graphs after repeated calls") {
+    TrueSkill ts;
+    const std::vector<std::vector<Rating>> teams = {
+        {Rating(30, 6), Rating(25, 5)},
+        {Rating(20, 7)}
+    };
+
+    for (int i = 0; i < 1000; ++i) {
+        const auto result = ts.rate(teams, {0, 1});
+        CHECK(result.size() == 2);
+        CHECK(result[0].size() == 2);
+        CHECK(result[1].size() == 1);
+    }
+}

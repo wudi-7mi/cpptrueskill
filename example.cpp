@@ -32,6 +32,25 @@ int main() {
     std::cout << std::endl;
 
 
+    // TrueSkill Through Time
+    std::cout << "[Example] TrueSkill Through Time" << std::endl;
+    trueskill::History::Composition composition = {
+        {{"alice"}, {"bob"}},
+        {{"bob"}, {"charlie"}},
+        {{"charlie"}, {"alice"}}
+    };
+    trueskill::History history(composition, {{1, 0}, {1, 0}, {1, 0}}, {1, 2, 3});
+    history.convergence();
+    for (const auto& entry : history.learning_curves()) {
+        std::cout << entry.first << ":";
+        for (const auto& estimate : entry.second) {
+            std::cout << " (t=" << estimate.first << ", " << estimate.second << ")";
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "geometric mean evidence: " << history.geometric_mean() << std::endl;
+    std::cout << std::endl;
+
     // 2 vs 2 vs 3
     std::cout << "[Example] 2 vs 2 vs 3 with weights" << std::endl;
 

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include <map>
 #include <iomanip>
@@ -91,14 +92,14 @@ public:
     Gaussian() : _mu(0), _sigma(INFINITY), _pi(0), _tau(0) {}
     Gaussian(double mu, double sigma)
         : _mu(mu), _sigma(sigma) {
-        if (sigma <= 0) {
-            throw std::invalid_argument("sigma should be greater than 0");
+        if (sigma < 0) {
+            throw std::invalid_argument("sigma should be greater than or equal to 0");
         }
 
         _mu = mu;
         _sigma = sigma;
-        _pi = pow(sigma, -2);
-        _tau = mu * _pi;
+        _pi = sigma == 0 ? INFINITY : std::pow(sigma, -2);
+        _tau = sigma == 0 ? 0 : mu * _pi;
     }
 
     static Gaussian fromPiTau(double pi, double tau) {
@@ -108,8 +109,8 @@ public:
         return g;
     }
 
-    double mu() const { return _pi > 0 ? (_tau / _pi) : 0; }
-    double sigma() const { return _pi > 0 ? (1 / std::sqrt(_pi)) : INFINITY; }
+    double mu() const { return _mu; }
+    double sigma() const { return _sigma; }
     double pi() const { return _pi; }
     double tau() const { return _tau; }
 
@@ -122,17 +123,20 @@ public:
     }
 
     void set_sigma(double sigma) {
-        if (sigma <= 0) {
-            throw std::invalid_argument("sigma should be greater than 0");
+        if (sigma < 0) {
+            throw std::invalid_argument("sigma should be greater than or equal to 0");
         }
         _sigma = sigma;
-        _pi = std::pow(_sigma, -2);
-        _tau = _mu * _pi;
+        _pi = sigma == 0 ? INFINITY : std::pow(_sigma, -2);
+        _tau = sigma == 0 ? 0 : _mu * _pi;
     }
 
     void set_pi(double pi) {
         _pi = pi;
-        if (_pi > 0) {
+        if (std::isinf(_pi)) {
+            _sigma = 0;
+            _mu = 0;
+        } else if (_pi > 0) {
             _sigma = 1.0 / std::sqrt(_pi);
             _mu = _tau / _pi;
         } else {
@@ -159,6 +163,25 @@ public:
         return Gaussian(precisionMean / precision, sigma);
     }
 
+    Gaussian operator+(const Gaussian& other) const {
+        return Gaussian(mu() + other.mu(), std::hypot(sigma(), other.sigma()));
+    }
+
+    Gaussian operator-(const Gaussian& other) const {
+        return Gaussian(mu() - other.mu(), std::hypot(sigma(), other.sigma()));
+    }
+
+    Gaussian operator*(double scalar) const {
+        if (scalar == INFINITY) {
+            return Gaussian();
+        }
+        return Gaussian(scalar * mu(), std::abs(scalar) * sigma());
+    }
+
+    friend Gaussian operator*(double scalar, const Gaussian& gaussian) {
+        return gaussian * scalar;
+    }
+
     Gaussian operator*(const Gaussian& other) const {
         double pi = _pi + other._pi;
         double tau = _tau + other._tau;
@@ -169,6 +192,23 @@ public:
         double pi = _pi - other._pi;
         double tau = _tau - other._tau;
         return Gaussian::fromPiTau(pi, tau);
+    }
+
+    std::pair<double, double> delta(const Gaussian& other) const {
+        const double mu_difference = mu() == other.mu() ? 0 : std::abs(mu() - other.mu());
+        const double sigma_difference = sigma() == other.sigma()
+            ? 0
+            : std::abs(sigma() - other.sigma());
+        return {mu_difference, sigma_difference};
+    }
+
+    bool is_approx(const Gaussian& other, double tolerance = 1e-5) const {
+        const auto difference = delta(other);
+        return difference.first < tolerance && difference.second < tolerance;
+    }
+
+    double cdf(double x) const {
+        return math::cdf(x, mu(), sigma());
     }
 
     double logProductNormalization(const Gaussian& other) const {

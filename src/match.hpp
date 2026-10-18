@@ -2,15 +2,16 @@
 #define MATCH_HPP
 
 #include "trueskill.hpp"
+#include "player.hpp"
 
 namespace trueskill {
 
-class Player {
+class MatchPlayer {
 public:
     int id;
     Rating rating;
 
-    Player(int playerId, const Rating& initialRating)
+    MatchPlayer(int playerId, const Rating& initialRating)
         : id(playerId), rating(initialRating) {}
 
     const Rating& getRating() const {
@@ -28,4 +29,3 @@ public:
 } // namespace trueskill
 
 #endif // MATCH_HPP
-

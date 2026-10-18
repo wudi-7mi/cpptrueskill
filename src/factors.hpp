@@ -156,6 +156,8 @@ public:
 
 class SumFactor : public Factor {
 public:
+    using Factor::up;
+
     std::vector<double> coeffs;
 
     SumFactor(Variable* sum_var, const std::vector<Variable*>& term_vars, const std::vector<double>& coeffs)
